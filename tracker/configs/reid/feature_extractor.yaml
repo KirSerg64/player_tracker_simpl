@@ -1,0 +1,13 @@
+_target_: tracker.reid.feature_extractor.FeatureExtractor
+batch_size: 8
+cfg:
+  model_name: ''
+  model_path: '${model_dir}/reid/feature_extractor_osnet_x1_0.onnx'
+  image_size: [256, 128]
+  pixel_mean: [0.485, 0.456, 0.406]
+  pixel_std: [0.229, 0.224, 0.225]
+  pixel_norm: True
+  device: 'cuda'
+  verbose: False
+  optimal_batch_size: 8  # Optimal batch size for ONNX inference
+  enable_batch_padding: True  # Enable padding to optimal batch sizes

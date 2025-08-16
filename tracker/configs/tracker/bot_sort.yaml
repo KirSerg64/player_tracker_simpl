@@ -1,0 +1,5 @@
+_target_: tracker.algorithms.tracker.Tracker
+batch_size: 1
+cfg:
+  reid_weights: '${model_dir}/reid/feature_extractor_osnet_x1_0.onnx'
+  half: true

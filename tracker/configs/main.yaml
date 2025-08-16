@@ -1,0 +1,25 @@
+# Main config
+device: cpu
+video_buffer_size: 50
+# video_path: "F:/Dataset/7_06_15fps_2min.mp4"
+video_path: "C:/Users/kiril/_data/Projects/FootballPlayer/Dataset/121364_0_part2.mp4"
+target_fps: 15
+
+defaults:
+  - detector: yolo_api
+  - reid: feature_extractor
+  - tracker: bot_sort
+  - _self_
+
+modules: # Allows module-specific batch_size and other configuration
+  detector: {batch_size: 1}
+  feature_extractor: {batch_size: 8}
+  tracker: {batch_size: 1}
+
+# Path definitions
+home_dir: "${oc.env:HOME}"
+data_dir: "${project_dir}/data"
+model_dir: "${project_dir}/pretrained_models"
+
+
+project_dir: "${hydra:runtime.cwd}"
