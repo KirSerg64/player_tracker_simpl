@@ -10,7 +10,7 @@ import numpy as np
 # from tracklab.pipeline.imagelevel_module import ImageLevelModule
 from tracklab.utils.coordinates import sanitize_bbox_ltrb
 from tracker.utils.pipeline_base import MessageType, ProcessConfig, PipelineMessage
-from boxmot import BotSort
+from tracker.algorithms.utils.botsort import BotSortCust
 
 log = logging.getLogger(__name__)
 
@@ -22,7 +22,7 @@ class Tracker():
         self.device = device
         self.batch_size = batch_size
         self.reid_weights = cfg.get("reid_weights", None)
-        self.tracker_model = BotSort(
+        self.tracker_model = BotSortCust(
             reid_weights=Path(self.reid_weights),
             device=device,
             half=True,

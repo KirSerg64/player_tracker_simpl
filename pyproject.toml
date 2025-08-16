@@ -16,7 +16,7 @@ dependencies = [
     "openmim==0.3.9",
     "torchreid @ git+https://github.com/VlSomers/bpbreid",
     "lightning==2.0.9",
-    "tracklab_calibration",
+#   "tracklab_calibration",
     "numpy",    
     "tensorrt-cu12==10.7",
     "tensorrt-cu12-bindings==10.7",
