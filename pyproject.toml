@@ -1,5 +1,5 @@
 [project]
-name = "sn-gamestate"
+name = "player_tracker_simpl"
 version = "0.2.0"
 description = "A Framework for football players identification"
 readme = "README.md"
@@ -54,13 +54,3 @@ dependencies = [
     "seaborn",
     "boxmot",
 ]
-
-[build-system]
-requires = ["setuptools>=42"]
-build-backend = "setuptools.build_meta"
-
-[tool.setuptools.package-data]
-"*" = ["*.txt", "*.rst", "*.yaml"]
-
-[project.optional-dependencies]
-dev = ["ipykernel==6.29.4"]
