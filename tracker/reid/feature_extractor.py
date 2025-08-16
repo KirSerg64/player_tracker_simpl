@@ -40,8 +40,23 @@ class FeatureExtractor(object):
                     providers.insert(0, "CUDAExecutionProvider")
                 else:  # Only log warning if CUDA was requested but unavailable
                     log.warning("Failed to start ONNX Runtime with CUDA. Using CPU...")
-            log.info(f"Using ONNX Runtime {providers[0]} with batch_size={self.batch_size}")
-            self.session = onnxruntime.InferenceSession(self.model_path, providers=providers)            
+            
+            # Configure session options for optimal performance
+            session_options = onnxruntime.SessionOptions()
+            # Use CPU core count for optimal performance
+            import os
+            cpu_count = os.cpu_count() or 1
+            session_options.intra_op_num_threads = min(4, cpu_count)  # Max 4 threads for ops
+            session_options.inter_op_num_threads = 1  # Keep sequential between operations
+            session_options.execution_mode = onnxruntime.ExecutionMode.ORT_PARALLEL
+            session_options.graph_optimization_level = onnxruntime.GraphOptimizationLevel.ORT_ENABLE_ALL
+            
+            log.info(f"Using ONNX Runtime {providers[0]}")
+            self.session = onnxruntime.InferenceSession(
+                self.model_path, 
+                providers=providers,
+                sess_options=session_options
+            )            
             self.input_name = self.session.get_inputs()[0].name
             self.output_name = self.session.get_outputs()[0].name
 

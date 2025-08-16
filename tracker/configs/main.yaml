@@ -1,8 +1,7 @@
 # Main config
 device: cpu
 video_buffer_size: 50
-# video_path: "F:/Dataset/7_06_15fps_2min.mp4"
-video_path: "C:/Users/kiril/_data/Projects/FootballPlayer/Dataset/121364_0_part2.mp4"
+video_path: ""
 target_fps: 15
 
 defaults:
@@ -21,5 +20,11 @@ home_dir: "${oc.env:HOME}"
 data_dir: "${project_dir}/data"
 model_dir: "${project_dir}/pretrained_models"
 
-
+experiment_name: "player_tracking"
 project_dir: "${hydra:runtime.cwd}"
+
+save_results: true
+hydra:
+  run:
+    dir: "outputs/${experiment_name}/${now:%Y-%m-%d}/${now:%H-%M-%S}"
+    # dir: "outputs"

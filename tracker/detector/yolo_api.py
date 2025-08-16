@@ -1,8 +1,5 @@
 import logging
-from typing import Any, Dict
-from xml.parsers.expat import model
-
-import torch
+import os
 import pandas as pd
 import supervision as sv
 import numpy as np
@@ -12,8 +9,6 @@ from ultralytics import YOLO
 from tracklab.pipeline.imagelevel_module import ImageLevelModule
 from tracklab.utils.coordinates import sanitize_bbox_ltrb
 from tracker.utils.pipeline_base import MessageType, ProcessConfig, PipelineMessage
-from boxmot import BotSort
-
 
 
 log = logging.getLogger(__name__)
@@ -41,7 +36,23 @@ class YOLOOnnx(ImageLevelModule):
         super().__init__(batch_size)
         self.cfg = cfg
         self.device = device
+        
+        # Suppress all YOLO outputs
+
+        os.environ["YOLO_VERBOSE"] = "False"
+        
+        # Redirect ultralytics logging
+        ultralytics_logger = logging.getLogger('ultralytics')
+        ultralytics_logger.setLevel(logging.ERROR)
+        
         self.model = YOLO(cfg.path_to_checkpoint, task="detect", verbose=False)
+        
+        # Clear all callbacks to prevent any outputs
+        # self.model.callbacks.clear()
+        
+        # Additional silence settings
+        self.model.overrides['verbose'] = False
+        
         # self.model.to(device)
         self.id = 0
         self.class_map = {cls: id for id, cls in enumerate(cfg.classes)}
@@ -51,13 +62,20 @@ class YOLOOnnx(ImageLevelModule):
             self.class_map['referee'],
         ])
         self.use_slicer = cfg.get("use_slicer", False)
-        self.slicer = sv.InferenceSlicer(
-            callback=self.callback, thread_workers=4,
-        )
+        if self.use_slicer:
+            self.slicer = sv.InferenceSlicer(
+                callback=self.callback, thread_workers=1,  # Reduced from 4 to 1
+            )
 
     # @torch.no_grad()
     def callback(self, image_slice) -> sv.Detections:
-        results = self.model.predict(image_slice, device=self.device)[0]
+        results = self.model.predict(
+            image_slice, 
+            device=self.device,
+            verbose=False,
+            show=False,
+            save=False
+        )[0]
         return sv.Detections.from_ultralytics(results)
 
     # @torch.no_grad()
@@ -77,7 +95,17 @@ class YOLOOnnx(ImageLevelModule):
                 sliced_results = self.slicer(img)
                 results_by_image.append(sliced_results)
         else:
-            results_by_image = self.model.predict(images, device=self.device)
+            results_by_image = self.model.predict(
+                images, 
+                device=self.device,
+                verbose=False,
+                show=False,
+                save=False,
+                save_txt=False,
+                save_conf=False,
+                save_crop=False,
+                stream=False
+            )
             results_by_image = [sv.Detections.from_ultralytics(res) for res in results_by_image]
         detections = []
         for results, shape in zip(results_by_image, shapes):

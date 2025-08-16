@@ -52,23 +52,15 @@ dependencies = [
 #    "pycocotools",
     "thop",
     "seaborn",
+    "boxmot",
 ]
-
-[project.entry-points.tracklab_plugin]
-sn_gamestate = "sn_gamestate.config_finder:ConfigFinder"
 
 [build-system]
 requires = ["setuptools>=42"]
 build-backend = "setuptools.build_meta"
-
-[tool.setuptools.packages.find]
-include = ["sn_gamestate*"]
 
 [tool.setuptools.package-data]
 "*" = ["*.txt", "*.rst", "*.yaml"]
 
 [project.optional-dependencies]
 dev = ["ipykernel==6.29.4"]
-
-[tool.uv.sources]
-tracklab-calibration = { path = "plugins/calibration", editable = true }
