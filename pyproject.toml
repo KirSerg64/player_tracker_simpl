@@ -1,6 +1,6 @@
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "player_tracker_simpl"
@@ -87,10 +87,16 @@ cpu = [
 ]
 
 [project.scripts]
-player-tracker = "player_tracker_simpl.main:main"
+player-tracker = "main:main"
 
-[tool.hatchling.build.targets.wheel]
-packages = ["tracker"]
+[tool.setuptools.packages.find]
+include = ["tracker*"]
+
+[tool.setuptools.package-data]
+tracker = ["**/*.yaml", "**/*.yml", "**/*.txt"]
+
+[tool.setuptools]
+py-modules = ["main"]
 
 [tool.uv]
 dev-dependencies = [
