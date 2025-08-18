@@ -15,7 +15,7 @@ modules: # Allows module-specific batch_size and other configuration
   detector: {batch_size: 1}
   feature_extractor: {batch_size: 8}
   tracker: {batch_size: 1}
-  refiner: {batch_size: 100}
+  refiner: {batch_size: 200}
 
 # Path definitions
 home_dir: "${oc.env:HOME}"

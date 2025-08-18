@@ -53,3 +53,18 @@ class Tracklet:
         '''
         subtrack = Tracklet(self.track_id, self.times[start:end + 1], self.scores[start:end + 1], self.bboxes[start:end + 1], self.features[start:end + 1] if self.features else None)
         return subtrack
+    
+    def update_sequential(self, new_tracklet):
+        '''
+        Updates the current tracklet with a new tracklet, merging their data.
+
+        Args:
+            new_tracklet (Tracklet): The new tracklet to merge into the current one.
+        '''
+        if new_tracklet.track_id != self.track_id:
+            raise ValueError("Tracklet IDs do not match for update.")
+
+        self.times.extend(new_tracklet.times)
+        self.scores.extend(new_tracklet.scores)
+        self.bboxes.extend(new_tracklet.bboxes)
+        self.features.extend(new_tracklet.features)

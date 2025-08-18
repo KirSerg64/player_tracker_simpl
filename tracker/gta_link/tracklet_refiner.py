@@ -71,6 +71,7 @@ class TrackletsRefiner():
         self.mapping_strategy = cfg.mapping_strategy
         self.return_refined_detections = cfg.return_refined_detections
         self.max_wait_time = cfg.max_wait_time
+        self.wait_interval = cfg.wait_interval
         self.save_tracklets = cfg.save_tracklets
 
         video_name = "refined_tracklets.pkl"
@@ -161,7 +162,7 @@ class TrackletsRefiner():
                 log.info(f"Processing batch {batch_data['batch_id']} with {len(batch_data['tracklets'])} tracklets")
                 
                 # Process batch using EXISTING PARALLEL FUNCTION (this is where true parallelism happens)
-                processed_batch = self._process_batch_with_existing_parallel_functions(batch_data['tracklets'])
+                processed_batch = self._process_batch_parallel(batch_data['tracklets'])
                 
                 # Store processed result and merge incrementally
                 result = {
@@ -189,7 +190,7 @@ class TrackletsRefiner():
                 with self._batch_lock:
                     self.pending_batches = max(0, self.pending_batches - 1)
 
-    def _process_batch_with_existing_parallel_functions(self, tracklets):
+    def _process_batch_parallel(self, tracklets):
         """Process batch using existing well-tested parallel functions"""
         try:
             # Get spatial constraints
@@ -222,11 +223,11 @@ class TrackletsRefiner():
         """Incrementally merge new batch results with accumulated tracklets"""
         new_tracklets = batch_result['processed_tracklets']
         
-        for track_id, tracklet in new_tracklets.items():
+        for track_id, tracklet in new_tracklets.items():            
             if track_id in self.accumulated_tracklets:
                 # Merge with existing tracklet
-                self.accumulated_tracklets[track_id] = self._merge_same_id_tracklets(
-                    self.accumulated_tracklets[track_id], tracklet
+                self.accumulated_tracklets[track_id] = self.accumulated_tracklets[track_id].update_sequential(
+                    tracklet
                 )
                 log.debug(f"Merged tracklet {track_id} from batch {batch_result['batch_id']}")
             else:
@@ -234,52 +235,6 @@ class TrackletsRefiner():
                 self.accumulated_tracklets[track_id] = tracklet
         
         log.info(f"Accumulated {len(self.accumulated_tracklets)} unique tracklets")
-
-    def _merge_same_id_tracklets(self, tracklet1, tracklet2):
-        """Merge tracklets with same ID, handling potential overlaps"""
-        # Use dictionary to handle overlapping frames intelligently
-        time_to_data = {}
-        
-        # Add data from first tracklet
-        for i, time in enumerate(tracklet1.times):
-            time_to_data[time] = {
-                'bbox': tracklet1.bboxes[i],
-                'score': tracklet1.scores[i],
-                'feature': tracklet1.features[i],
-                'source': 'tracklet1'
-            }
-        
-        # Add data from second tracklet (may overwrite if same frame)
-        for i, time in enumerate(tracklet2.times):
-            if time in time_to_data:
-                # Frame overlap - keep the one with higher confidence
-                if tracklet2.scores[i] > time_to_data[time]['score']:
-                    time_to_data[time] = {
-                        'bbox': tracklet2.bboxes[i],
-                        'score': tracklet2.scores[i],
-                        'feature': tracklet2.features[i],
-                        'source': 'tracklet2'
-                    }
-            else:
-                time_to_data[time] = {
-                    'bbox': tracklet2.bboxes[i],
-                    'score': tracklet2.scores[i],
-                    'feature': tracklet2.features[i],
-                    'source': 'tracklet2'
-                }
-        
-        # Create merged tracklet with sorted times
-        merged = Tracklet(tracklet1.track_id, [], [], [])
-        sorted_times = sorted(time_to_data.keys())
-        
-        for time in sorted_times:
-            data = time_to_data[time]
-            merged.times.append(time)
-            merged.bboxes.append(data['bbox'])
-            merged.scores.append(data['score'])
-            merged.features.append(data['feature'])
-        
-        return merged
 
     def finalize_and_get_results(self):
         """Call this when tracking is finished to get final merged results"""
@@ -323,7 +278,6 @@ class TrackletsRefiner():
     def _wait_for_queue_completion(self):
         """Wait for all queued batches to be processed"""       
 
-        wait_interval = 1.0  # Check every 1 second
         elapsed_time = 0
         
         log.info("Waiting for all queued batches to be processed...")
@@ -337,10 +291,10 @@ class TrackletsRefiner():
                 log.info("All batches processed successfully")
                 return
             
-            time.sleep(wait_interval)
-            elapsed_time += wait_interval
-            
-            if elapsed_time % 5 == 0:  # Log every 5 seconds
+            time.sleep(self.wait_interval)
+            elapsed_time += self.wait_interval
+
+            if elapsed_time % 10 == 0:  # Log every 10 seconds
                 log.info(f"Still waiting for batch completion... ({pending_count} pending, {elapsed_time}s elapsed)")
         
         # Final check with lock
@@ -348,7 +302,7 @@ class TrackletsRefiner():
             final_pending = self.pending_batches
         
         if final_pending > 0:
-            log.warning(f"Timeout waiting for batch completion after {max_wait_time}s. {final_pending} batches still pending.")
+            log.warning(f"Timeout waiting for batch completion after {self.max_wait_time}s. {final_pending} batches still pending.")
         else:
             log.info("All batches completed just before timeout")
 
@@ -372,10 +326,13 @@ class TrackletsRefiner():
         
         log.info(f"Final merge: processing {len(self.accumulated_tracklets)} accumulated tracklets")
         
+        # Validate and fix all tracklets before final merge
+        validated_tracklets = self.accumulated_tracklets
+        
         # Perform final merge using existing function for any remaining similar tracklets
-        max_x_range, max_y_range = self._get_spatial_constraints(self.accumulated_tracklets)
+        max_x_range, max_y_range = self._get_spatial_constraints(validated_tracklets)
         final_merged = merge_tracklets(
-            self.accumulated_tracklets,
+            validated_tracklets,
             merge_dist_thres=self.merge_dist_thres,
             max_x_range=max_x_range,
             max_y_range=max_y_range
