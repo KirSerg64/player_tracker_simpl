@@ -11,7 +11,7 @@ class EllipseDetection(DetectionVisualizer):
         self.print_id = print_id
         super().__init__()
         self.color_ellipse = (0, 255, 0)
-        self.color_text = (0, 255, 0)
+        self.color_text = (0, 0, 0)
 
     def draw_detection(self, image, detection_pred):
         for detection in detection_pred:
@@ -39,7 +39,7 @@ class EllipseDetection(DetectionVisualizer):
                 thickness=1,
                 alignH="c",
                 alignV="c",
-                color_bg=None,
+                color_bg=self.color_ellipse,
                 color_txt=self.color_text,
                 alpha_bg=1,
             )
@@ -67,11 +67,7 @@ class EllipseDetection(DetectionVisualizer):
                 # Draw ellipse
                 center = (int((x1 + x2) / 2), int(y2))
                 width = x2 - x1
-                
-                # Use different color for refined tracklets
-                color_ellipse = (0, 255, 255)  # Yellow for refined tracklets
-                color_text = (0, 255, 255)
-                
+                                
                 cv2.ellipse(
                     image,
                     center=center,
@@ -79,7 +75,7 @@ class EllipseDetection(DetectionVisualizer):
                     angle=0.0,
                     startAngle=-45.0,
                     endAngle=235.0,
-                    color=color_ellipse,
+                    color=self.color_ellipse,
                     thickness=3,  # Thicker for final tracklets
                     lineType=cv2.LINE_AA,
                 )
@@ -94,8 +90,8 @@ class EllipseDetection(DetectionVisualizer):
                     thickness=2,
                     alignH="c",
                     alignV="c",
-                    color_bg=None,
-                    color_txt=color_text,
+                    color_bg=self.color_ellipse,
+                    color_txt=self.color_text,
                     alpha_bg=1,
                 )
 
