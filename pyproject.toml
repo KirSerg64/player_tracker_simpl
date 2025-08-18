@@ -83,7 +83,7 @@ tensorrt = [
     "tensorrt==10.7",
 ]
 gpu = [
-    "onnxruntime-gpu",
+    "onnxruntime-gpu==1.21.1",
 ]
 cpu = [
     "onnxruntime",
