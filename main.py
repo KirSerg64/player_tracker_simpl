@@ -22,7 +22,10 @@ import torch.multiprocessing as mp
 from tracker.utils.video_reader import VideoReaderProcess
 from tracker.utils.pipeline_base import MessageType, PipelineMessage, ProcessConfig, PipelineProcess
 from tracker.algorithms.tracker import Tracker
+from tracker.gta_link.tracklet_refiner import TrackletsRefiner
 from tracker.visualization.players_drawer import EllipseDetection
+from tracker.visualization.video_creator import create_final_tracklet_video
+from tracker.utils.statistics import save_all_statistics
 
 os.environ["HYDRA_FULL_ERROR"] = "1"
 # Suppress YOLO outputs globally
@@ -120,6 +123,8 @@ def main(cfg):
     feature_extractor = instantiate(cfg.reid, device=device, batch_size=cfg.modules.feature_extractor.batch_size) 
     #create tracker
     tracker = instantiate(cfg.tracker, device=device, batch_size=cfg.modules.tracker.batch_size)
+    #create tracklet refiner
+    tracklet_refiner = instantiate(cfg.gta_link, device=device, batch_size=cfg.modules.refiner.batch_size)
     #create visualizer
     visualizer = EllipseDetection()
 
@@ -149,7 +154,8 @@ def main(cfg):
         )   
         detections = detector.process(video_result)
         features = feature_extractor.process(detections)
-        tracklets = tracker.process(features)       
+        tracklets = tracker.process(features)      
+        refined_tracklets = tracklet_refiner.process(tracklets)
 
         if cfg.save_results and video_writer is not None:
             # Draw frame using visualizers
@@ -171,12 +177,41 @@ def main(cfg):
             'Frame': frames_processed
         })
 
-    # Close progress bar
-    progress_bar.close()
-    
     video_reader.release()
     if video_writer is not None:
         video_writer.release()
+    # Close progress bar
+    progress_bar.close()
+    
+    # Finalize tracklet refinement and get final results
+    log.info("Finalizing tracklet refinement...")
+    final_tracklets = tracklet_refiner.finalize_and_get_results()
+    log.info(f"Final tracklet refinement completed: {len(final_tracklets)} final tracklets")
+    
+    # Create final video with refined tracklets
+    if cfg.save_results and final_tracklets:
+        log.info("Creating final video with refined tracklets...")
+        
+        # Get video properties for statistics
+        cap = cv2.VideoCapture(cfg.video_path)
+        video_fps = cap.get(cv2.CAP_PROP_FPS) if cap.isOpened() else 30.0
+        cap.release()
+        
+        # Create final video with refined tracklets
+        create_final_tracklet_video(
+            video_path=cfg.video_path,
+            final_tracklets=final_tracklets,
+            output_path=os.path.join(output_dir, "videos_res", "final_refined_tracklets.mp4"),
+            show_trajectories=True
+        )
+        
+        # Save comprehensive statistics in all formats
+        save_all_statistics(
+            final_tracklets=final_tracklets,
+            output_dir=output_dir,
+            video_fps=video_fps
+        )
+
     # cv2.destroyAllWindows()
     
     log.info(f"Processing completed! Processed {frames_processed} frames")

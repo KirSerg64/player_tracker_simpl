@@ -1,0 +1,21 @@
+# Refine Tracklets Module Configuration
+# This module refines and merges tracklets using advanced algorithms
+
+_target_: tracker.gta_link.tracklet_refiner.TrackletsRefiner
+batch_size: 50              # Batch size for processing
+cfg:
+# Tracklet splitting parameters
+  use_split: true
+  eps: 0.5                    # DBSCAN epsilon parameter for splitting
+  min_samples: 3              # DBSCAN minimum samples parameter
+  max_k: 10                   # Maximum number of clusters for splitting
+  min_len: 30                 # Minimum tracklet length threshold
+
+# Tracklet merging parameters
+  merge_dist_thres: 0.3       # Distance threshold for merging tracklets
+  spatial_factor: 1.0         # Spatial constraint factor
+  use_batched_merge: true  # Use batched merging for efficiency
+  mapping_strategy: 'sequential' # Track ID mapping strategy - "similarity" or "sequential"
+  return_refined_detections: true # If True, return refined tracklets as detections DataFrame
+
+  save_tracklets: true
