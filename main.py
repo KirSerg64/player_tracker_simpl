@@ -189,36 +189,33 @@ def main(cfg):
     tracklet_writer.save_tracklets()
     log.info("Start tracklet refiner.")
 
-    # final_tracklets = tracklet_refiner._refine_tracklets(tracklet_writer.get_tracklets())
+    final_tracklets = tracklet_refiner._refine_tracklets(tracklet_writer.get_tracklets())
 
-    # # Finalize tracklet refinement and get final results
+    # Finalize tracklet refinement and get final results
     # log.info("Finalizing tracklet refinement...")
     # final_tracklets = tracklet_refiner.finalize_and_get_results()
     # log.info(f"Final tracklet refinement completed: {len(final_tracklets)} final tracklets")
     
     # Create final video with refined tracklets
-    # if cfg.save_results and final_tracklets:
-    #     log.info("Creating final video with refined tracklets...")
-        
-    #     # Get video properties for statistics
-    #     cap = cv2.VideoCapture(cfg.video_path)
-    #     video_fps = cap.get(cv2.CAP_PROP_FPS) if cap.isOpened() else 30.0
-    #     cap.release()
-        
-    #     # Create final video with refined tracklets
-    #     create_final_tracklet_video(
-    #         video_path=cfg.video_path,
-    #         final_tracklets=final_tracklets,
-    #         output_path=os.path.join(output_dir, "videos_res", "final_refined_tracklets.mp4"),
-    #         show_trajectories=True
-    #     )
-        
-        # # Save comprehensive statistics in all formats
-        # save_all_statistics(
-        #     final_tracklets=final_tracklets,
-        #     output_dir=output_dir,
-        #     video_fps=video_fps
-        # )
+    if cfg.save_results and final_tracklets:
+        log.info("Creating final video with refined tracklets...")        
+        # Get video properties for statistics
+        cap = cv2.VideoCapture(cfg.video_path)
+        video_fps = cap.get(cv2.CAP_PROP_FPS) if cap.isOpened() else 30.0
+        cap.release()        
+        # Create final video with refined tracklets
+        create_final_tracklet_video(
+            video_path=cfg.video_path,
+            final_tracklets=final_tracklets,
+            output_path=os.path.join(output_dir, "videos_res", "final_refined_tracklets.mp4"),
+            show_trajectories=True
+        )        
+        # Save comprehensive statistics in all formats
+        save_all_statistics(
+            final_tracklets=final_tracklets,
+            output_dir=output_dir,
+            video_fps=video_fps
+        )
 
     # cv2.destroyAllWindows()
     

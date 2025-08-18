@@ -461,25 +461,25 @@ class TrackletsRefiner():
     def _merge_tracklets_batched(self, tracklets_dict: Dict, max_x_range: float, max_y_range: float) -> Dict:
         """Merge tracklets in batches."""
         try:
-            # # Use the batched merging function from refine_tracklets_batched
-            # return merge_tracklets_batched(
-            #     tracklets_dict,
-            #     seq2Dist={},  # Empty dict as we're not using it for visualization
-            #     batch_size=self.batch_size,
-            #     max_x_range=max_x_range,
-            #     max_y_range=max_y_range,
-            #     merge_dist_thres=self.merge_dist_thres
-            # )
-        
             # Use the batched merging function from refine_tracklets_batched
-            return merge_tracklets_batched_parallel_processes(
+            return merge_tracklets_batched(
                 tracklets_dict,
                 seq2Dist={},  # Empty dict as we're not using it for visualization
                 batch_size=self.batch_size,
                 max_x_range=max_x_range,
                 max_y_range=max_y_range,
                 merge_dist_thres=self.merge_dist_thres
-            )            
+            )
+        
+            # Use the batched merging function from refine_tracklets_batched
+            # return merge_tracklets_batched_parallel_processes(
+            #     tracklets_dict,
+            #     seq2Dist={},  # Empty dict as we're not using it for visualization
+            #     batch_size=self.batch_size,
+            #     max_x_range=max_x_range,
+            #     max_y_range=max_y_range,
+            #     merge_dist_thres=self.merge_dist_thres
+            # )            
             
         except Exception as e:
             log.error(f"Error during tracklet merging: {e}")
