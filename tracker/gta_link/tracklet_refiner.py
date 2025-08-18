@@ -17,6 +17,7 @@ import time
 import threading
 from queue import Queue, Empty
 import multiprocessing as mp  # For CPU count only
+import time
 
 from tracklab.utils.coordinates import ltrb_to_ltwh
 from tracklab.pipeline.videolevel_module import VideoLevelModule
@@ -69,6 +70,7 @@ class TrackletsRefiner():
         self.use_batched_merge = cfg.use_batched_merge
         self.mapping_strategy = cfg.mapping_strategy
         self.return_refined_detections = cfg.return_refined_detections
+        self.max_wait_time = cfg.max_wait_time
         self.save_tracklets = cfg.save_tracklets
 
         video_name = "refined_tracklets.pkl"
@@ -319,15 +321,14 @@ class TrackletsRefiner():
         return self.final_tracklets
 
     def _wait_for_queue_completion(self):
-        """Wait for all queued batches to be processed"""
-        import time
-        max_wait_time = 60  # Maximum wait time in seconds
-        wait_interval = 0.1  # Check every 100ms
+        """Wait for all queued batches to be processed"""       
+
+        wait_interval = 1.0  # Check every 1 second
         elapsed_time = 0
         
         log.info("Waiting for all queued batches to be processed...")
         
-        while elapsed_time < max_wait_time:
+        while elapsed_time < self.max_wait_time:
             with self._batch_lock:
                 pending_count = self.pending_batches
             

@@ -18,4 +18,6 @@ cfg:
   mapping_strategy: 'sequential' # Track ID mapping strategy - "similarity" or "sequential"
   return_refined_detections: true # If True, return refined tracklets as detections DataFrame
 
+  max_wait_time: 600.0 # seconds
+
   save_tracklets: true
