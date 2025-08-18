@@ -37,6 +37,23 @@ from tracker.gta_link.utils.refine_tracklets_batched import (
     merge_tracklets_batched,
     merge_tracklets_batched_parallel_processes
 )
+
+# Import GPU-accelerated version if available
+try:
+    from tracker.gta_link.utils.refine_tracklets_cupy import (
+        merge_tracklets_gpu,
+        merge_tracklets_batched_gpu,
+        benchmark_gpu_vs_cpu,
+        GPUTrackletRefiner
+    )
+    GPU_AVAILABLE = True
+    print("🚀 GPU acceleration available with CuPy")
+except ImportError as e:
+    GPU_AVAILABLE = False
+    print(f"GPU acceleration not available: {e}")
+    # Create fallback functions
+    merge_tracklets_gpu = merge_tracklets
+    merge_tracklets_batched_gpu = merge_tracklets_batched
 from tracker.utils.pipeline_base import MessageType, PipelineMessage
 
 
@@ -73,6 +90,11 @@ class TrackletsRefiner():
         self.max_wait_time = cfg.max_wait_time
         self.wait_interval = cfg.wait_interval
         self.save_tracklets = cfg.save_tracklets
+        
+        # GPU acceleration options
+        self.use_gpu_acceleration = getattr(cfg, 'use_gpu_acceleration', True)
+        self.gpu_batch_size = getattr(cfg, 'gpu_batch_size', None)  # Auto-tune if None
+        self.enable_benchmarking = getattr(cfg, 'enable_benchmarking', False)
 
         video_name = "refined_tracklets.pkl"
         self.save_dir = os.path.join("outputs", video_name)
@@ -92,6 +114,11 @@ class TrackletsRefiner():
                 f"eps={self.eps}, min_samples={self.min_samples}, merge_dist_thres={self.merge_dist_thres}, "
                 f"mapping_strategy={self.mapping_strategy}, return_refined_detections={self.return_refined_detections}")
         log.info(f"OPTIMIZED THREADING approach enabled with batch_size={self.batch_size} (CPU work delegated to existing parallel functions)")
+        
+        if self.use_gpu_acceleration and GPU_AVAILABLE:
+            log.info("🚀 GPU acceleration ENABLED for tracklet merging")
+        else:
+            log.info("🐌 Using CPU implementation for tracklet merging")
 
 
     def process(self, input: PipelineMessage) -> PipelineMessage:
@@ -191,7 +218,7 @@ class TrackletsRefiner():
                     self.pending_batches = max(0, self.pending_batches - 1)
 
     def _process_batch_parallel(self, tracklets):
-        """Process batch using existing well-tested parallel functions"""
+        """Process batch using existing well-tested parallel functions or GPU acceleration"""
         try:
             # Get spatial constraints
             max_x_range, max_y_range = self._get_spatial_constraints(tracklets)
@@ -202,16 +229,35 @@ class TrackletsRefiner():
             else:
                 split_tracklets = tracklets
             
-            # Use existing PROVEN parallel merge function - THIS is where true CPU parallelism happens
-            merged_tracklets = merge_tracklets_batched_parallel_processes(
-                split_tracklets,
-                seq2Dist={},
-                batch_size=min(self.batch_size // 4, 20),  # Smaller sub-batches for parallel processing
-                max_x_range=max_x_range,
-                max_y_range=max_y_range,
-                merge_dist_thres=self.merge_dist_thres,
-                max_workers=min(mp.cpu_count(), 4)
-            )
+            # Choose merge strategy based on configuration and availability
+            if self.use_gpu_acceleration and GPU_AVAILABLE:
+                log.debug(f"🚀 Using GPU acceleration for batch of {len(split_tracklets)} tracklets")
+                
+                # Run benchmark if enabled (only on first batch)
+                if self.enable_benchmarking and not hasattr(self, '_first_batch_processed'):
+                    self._first_batch_processed = True
+                    if len(split_tracklets) >= 10:  # Only benchmark with sufficient data
+                        log.info("🏁 Running GPU vs CPU benchmark...")
+                        benchmark_gpu_vs_cpu(split_tracklets, self.merge_dist_thres, max_x_range, max_y_range)
+                
+                # Use GPU-accelerated merging
+                merged_tracklets = merge_tracklets_gpu(
+                    split_tracklets,
+                    merge_dist_thres=self.merge_dist_thres,
+                    max_x_range=max_x_range,
+                    max_y_range=max_y_range
+                )
+            else:
+                # Use existing PROVEN parallel merge function - THIS is where true CPU parallelism happens
+                merged_tracklets = merge_tracklets_batched_parallel_processes(
+                    split_tracklets,
+                    seq2Dist={},
+                    batch_size=min(self.batch_size // 4, 20),  # Smaller sub-batches for parallel processing
+                    max_x_range=max_x_range,
+                    max_y_range=max_y_range,
+                    merge_dist_thres=self.merge_dist_thres,
+                    max_workers=min(mp.cpu_count(), 4)
+                )
             
             return merged_tracklets
             

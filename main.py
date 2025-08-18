@@ -19,6 +19,7 @@ from hydra.utils import instantiate
 from hydra.core.hydra_config import HydraConfig
 from omegaconf import OmegaConf
 import torch.multiprocessing as mp
+from tracker.gta_link.tracklet_read_write import TrackletReadWrite
 from tracker.utils.video_reader import VideoReaderProcess
 from tracker.utils.pipeline_base import MessageType, PipelineMessage, ProcessConfig, PipelineProcess
 from tracker.algorithms.tracker import Tracker
@@ -125,6 +126,8 @@ def main(cfg):
     tracker = instantiate(cfg.tracker, device=device, batch_size=cfg.modules.tracker.batch_size)
     #create tracklet refiner
     tracklet_refiner = instantiate(cfg.gta_link, device=device, batch_size=cfg.modules.refiner.batch_size)
+    # create tracklet writer
+    tracklet_writer = TrackletReadWrite(file_path=os.path.join(output_dir, "tracklets.pkl"))
     #create visualizer
     visualizer = EllipseDetection()
 
@@ -155,7 +158,7 @@ def main(cfg):
         detections = detector.process(video_result)
         features = feature_extractor.process(detections)
         tracklets = tracker.process(features)      
-        refined_tracklets = tracklet_refiner.process(tracklets)
+        tracklet_writer.add_tracklet(tracklets)
 
         if cfg.save_results and video_writer is not None:
             # Draw frame using visualizers
@@ -182,10 +185,15 @@ def main(cfg):
         video_writer.release()
     # Close progress bar
     progress_bar.close()
-    
-    # Finalize tracklet refinement and get final results
-    log.info("Finalizing tracklet refinement...")
-    final_tracklets = tracklet_refiner.finalize_and_get_results()
+
+    # tracklet_writer.save_tracklets()
+    log.info("Start tracklet refiner.")
+
+    final_tracklets = tracklet_refiner._refine_tracklets(tracklet_writer.get_tracklets())
+
+    # # Finalize tracklet refinement and get final results
+    # log.info("Finalizing tracklet refinement...")
+    # final_tracklets = tracklet_refiner.finalize_and_get_results()
     log.info(f"Final tracklet refinement completed: {len(final_tracklets)} final tracklets")
     
     # Create final video with refined tracklets

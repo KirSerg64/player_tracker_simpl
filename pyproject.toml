@@ -62,6 +62,7 @@ dependencies = [
     "rich",
     "torchreid @ git+https://github.com/VlSomers/bpbreid",
     "prtreid @ git+https://github.com/KirSerg64/prtreid",
+    "albumentations==1.4.3",
 ]
 
 [project.optional-dependencies]

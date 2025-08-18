@@ -21,3 +21,8 @@ cfg:
   max_wait_time: 5400.0 # seconds, 1.5 hours
   wait_interval: 10.0  # seconds
   save_tracklets: true
+
+  # GPU Acceleration Options (requires CuPy: pip install cupy-cuda12x)
+  use_gpu_acceleration: true   # Enable GPU acceleration for merging
+  gpu_batch_size: null        # Auto-tune based on GPU memory if null
+  enable_benchmarking: false  # Run GPU vs CPU benchmark on first batch
