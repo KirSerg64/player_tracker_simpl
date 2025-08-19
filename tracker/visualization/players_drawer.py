@@ -86,8 +86,8 @@ class EllipseDetection(DetectionVisualizer):
                     f"{int(track_id):.0f}",
                     center,
                     fontFace=1,
-                    fontScale=1.2,  # Larger font for final tracklets
-                    thickness=2,
+                    fontScale=1,  # Larger font for final tracklets
+                    thickness=1,
                     alignH="c",
                     alignV="c",
                     color_bg=self.color_ellipse,

@@ -208,7 +208,7 @@ def main(cfg):
             video_path=cfg.video_path,
             final_tracklets=final_tracklets,
             output_path=os.path.join(output_dir, "videos_res", "final_refined_tracklets.mp4"),
-            show_trajectories=True
+            show_trajectories=False
         )        
         # Save comprehensive statistics in all formats
         save_all_statistics(

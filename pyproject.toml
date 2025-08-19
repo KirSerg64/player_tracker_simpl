@@ -60,8 +60,8 @@ dependencies = [
     "hydra-core",
     "tqdm",
     "rich",
-    "torchreid @ git+https://github.com/VlSomers/bpbreid",
-    "prtreid @ git+https://github.com/KirSerg64/prtreid",
+    #"torchreid @ git+https://github.com/VlSomers/bpbreid",
+    #"prtreid @ git+https://github.com/KirSerg64/prtreid",
     "albumentations==1.4.3",
 ]
 

@@ -494,7 +494,13 @@ class CuPyTrackletRefiner:
         Smart distance matrix update - only recompute affected row/column.
         This is a MAJOR optimization over full matrix recomputation.
         """
-        n = len(tracklet_ids)
+        n = dist_matrix.shape[0]  # Use actual matrix size instead of tracklet_ids length
+        
+        # Validate indices
+        if removed_idx >= n or merged_idx >= n:
+            # Fallback: recompute entire matrix if indices are invalid
+            log.warning(f"Invalid indices in matrix update: removed_idx={removed_idx}, merged_idx={merged_idx}, matrix_size={n}")
+            return self.get_distance_matrix_gpu(tracklets)
         
         # Remove the merged tracklet's row and column
         mask = cp.ones(n, dtype=cp.bool_) if self.use_gpu else np.ones(n, dtype=bool)
@@ -637,14 +643,14 @@ class CuPyTrackletRefiner:
             working_tracklets[tid1] = track1
             del working_tracklets[tid2]
             
-            # Update tracklet_ids and matrix
+            # Smart matrix update BEFORE modifying tracklet_ids list
             removed_idx = track2_idx
-            tracklet_ids.pop(removed_idx)
-            
-            # Smart matrix update instead of full recomputation
             dist_matrix = self.update_distance_matrix_after_merge(
                 dist_matrix, track1_idx, removed_idx, working_tracklets, tracklet_ids
             )
+            
+            # Update tracklet_ids AFTER matrix update
+            tracklet_ids.pop(removed_idx)
             
             # Update indices after removal
             if track1_idx > removed_idx:
@@ -713,6 +719,18 @@ def merge_tracklets(tracklets, merge_dist_thres, max_x_range, max_y_range):
     """GPU-optimized version of merge_tracklets with same interface."""
     refiner = CuPyTrackletRefiner()
     return refiner.merge_tracklets_gpu(tracklets, merge_dist_thres, max_x_range, max_y_range)
+
+
+def merge_tracklets_gpu(tracklets, merge_dist_thres, max_x_range, max_y_range):
+    """GPU-optimized tracklet merging - standalone function."""
+    refiner = CuPyTrackletRefiner()
+    return refiner.merge_tracklets_gpu(tracklets, merge_dist_thres, max_x_range, max_y_range)
+
+
+def get_distance_matrix(tracklets):
+    """GPU-optimized distance matrix computation - standalone function."""
+    refiner = CuPyTrackletRefiner()
+    return refiner.get_distance_matrix_gpu(tracklets)
 
 
 def merge_tracklets_batched(tracklets, seq2Dist, batch_size=50, seq_name=None,

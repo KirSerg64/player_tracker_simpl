@@ -12,6 +12,7 @@ cfg:
   min_len: 30                 # Minimum tracklet length threshold
 
 # Tracklet merging parameters
+  use_connect: true
   merge_dist_thres: 0.4       # Distance threshold for merging tracklets
   spatial_factor: 1.0         # Spatial constraint factor
   use_batched_merge: true  # Use batched merging for efficiency
