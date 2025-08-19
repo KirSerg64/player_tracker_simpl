@@ -26,6 +26,7 @@ experiment_name: "player_tracking"
 project_dir: "${hydra:runtime.cwd}"
 
 save_results: true
+save_to_aws: true
 hydra:
   run:
     dir: "outputs/${experiment_name}/${now:%Y-%m-%d}/${now:%H-%M-%S}"

@@ -30,7 +30,7 @@ dependencies = [
     "lightning==2.0.9",
     "numpy",
     "onnx",
-    "onnxruntime-gpu",
+    "onnxruntime-gpu==1.21.1",
     "ultralytics",
     "supervision",
     "inference",
@@ -55,14 +55,15 @@ dependencies = [
     "chardet",
     "tabulate",
     "thop",
-    "seaborn",
-    "boxmot",
+    "seaborn",    
     "hydra-core",
     "tqdm",
     "rich",
-    #"torchreid @ git+https://github.com/VlSomers/bpbreid",
-    #"prtreid @ git+https://github.com/KirSerg64/prtreid",
+    # "torchreid @ git+https://github.com/VlSomers/bpbreid",
+    # "prtreid @ git+https://github.com/KirSerg64/prtreid",
     "albumentations==1.4.3",
+    "boxmot",
+    "boto3",
 ]
 
 [project.optional-dependencies]
@@ -108,9 +109,9 @@ dev-dependencies = [
     "pytest-cov",
 ]
 
-# [tool.uv.sources]
-# prtreid = { git = "https://github.com/KirSerg64/prtreid.git" }
-# torchreid = { git = "https://github.com/VlSomers/bpbreid.git" }
+#[tool.uv.sources]
+#prtreid = { git = "https://github.com/KirSerg64/prtreid.git" }
+#torchreid = { git = "https://github.com/VlSomers/bpbreid.git" }
 
 [tool.black]
 line-length = 88

@@ -1,4 +1,5 @@
 import argparse
+from datetime import datetime
 import os
 from pathlib import Path
 
@@ -20,6 +21,7 @@ from hydra.core.hydra_config import HydraConfig
 from omegaconf import OmegaConf
 import torch.multiprocessing as mp
 from tracker.gta_link.tracklet_read_write import TrackletReadWrite
+from tracker.utils.aws_utils import load_file_to_bucket
 from tracker.utils.video_reader import VideoReaderProcess
 from tracker.utils.pipeline_base import MessageType, PipelineMessage, ProcessConfig, PipelineProcess
 from tracker.algorithms.tracker import Tracker
@@ -204,18 +206,24 @@ def main(cfg):
         video_fps = cap.get(cv2.CAP_PROP_FPS) if cap.isOpened() else 30.0
         cap.release()        
         # Create final video with refined tracklets
+        refined_video_path = os.path.join(output_dir, "videos_res", "final_refined_tracklets.mp4")
         create_final_tracklet_video(
             video_path=cfg.video_path,
             final_tracklets=final_tracklets,
-            output_path=os.path.join(output_dir, "videos_res", "final_refined_tracklets.mp4"),
+            output_path=refined_video_path,
             show_trajectories=False
-        )        
+        )
         # Save comprehensive statistics in all formats
         save_all_statistics(
             final_tracklets=final_tracklets,
             output_dir=output_dir,
             video_fps=video_fps
         )
+        #save to AWS
+        if cfg.save_to_aws:
+            date_time = datetime.now().strftime("%Y%m%d_%H%M%S")
+            save_name = f"full_result_video_{date_time}.mp4"
+            load_file_to_bucket(refined_video_path, save_name)
 
     # cv2.destroyAllWindows()
     

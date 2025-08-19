@@ -17,8 +17,8 @@ WORKDIR /app
 
 # Copy dependency files (for reference, dependencies already installed in base image)
 COPY pyproject.toml ./
-COPY poetry.lock* ./
-COPY uv.lock* ./
+# COPY poetry.lock* ./
+# COPY uv.lock* ./
 
 # Copy application files (appuser already exists in base image)
 # COPY --chown=appuser:appuser main_video_parallel.py ./
@@ -31,19 +31,20 @@ COPY --chown=appuser:appuser tracker/ ./tracker
 # Copy pretrained models (if they weren't included in base image)
 COPY --chown=appuser:appuser pretrained_models/yolo/yolov11_A100_640_batch1_fp16_ultra.engine ./pretrained_models/yolo/
 # COPY --chown=appuser:appuser pretrained_models/reid/prtreid-fixed-opset17-simplified.onnx ./pretrained_models/reid/
-# COPY --chown=appuser:appuser pretrained_models/reid/prtreid-onnx-opset20-simplified.onnx ./pretrained_models/reid/
+COPY --chown=appuser:appuser pretrained_models/reid/prtreid-onnx-opset20-simplified.onnx ./pretrained_models/reid/
 # COPY --chown=appuser:appuser pretrained_models/reid/sports_model.pth.tar-60 ./pretrained_models/gta_link/
 COPY --chown=appuser:appuser pretrained_models/reid/feature_extractor_osnet_x1_0.onnx ./pretrained_models/reid/
 # COPY --chown=appuser:appuser pretrained_models/calibration/ ./pretrained_models/calibration/
 
 # Install local packages (need to reinstall since we copied new code)
 USER root
+RUN pip uninstall -y torchreid
 RUN pip install --no-cache-dir uv
 RUN uv pip install -e ".[gpu]" ".[tensorrt]"
 # RUN pip install --no-cache-dir albumentations==1.4.3 boto3
 # RUN pip install --no-cache-dir --no-deps -e ./plugins/calibration
 # RUN pip install --no-cache-dir --no-deps -e .
-RUN pip install --no-cache-dir boto3
+RUN pip install --no-cache-dir boto3 boxmot==15.0.2
 
 # Copy the script and make it executable
 # COPY --chown=appuser:appuser run_parallel.sh /app/
@@ -71,5 +72,5 @@ ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
 # docker run kvelertak/player_tracker:app python test_hello.py
 # docker run -it kvelertak/player_tracker:app /bin/bash
 # CMD ["python", "test_hello.py"]
-CMD ["python", "main.py", "video_path='/app/data/input/7_06_15fps_10min_000.mp4'"]
+CMD ["python", "main.py", "video_path='/app/data/input/7_06_15fps.mp4'"]
 

@@ -3,7 +3,7 @@ from typing import Dict
 import numpy as np
 import onnxruntime
 import cv2
-
+import os
 # from torchreid.utils import (
 #     check_isfile, load_pretrained_weights, compute_model_complexity
 # )
@@ -32,8 +32,8 @@ class FeatureExtractor(object):
         self.batch_size = batch_size
         self.enable_batch_padding = cfg.enable_batch_padding  # Enable padding to optimal batch sizes
         self.session = None
-        
-        if self.model_path and check_isfile(self.model_path):
+
+        if self.model_path and os.path.isfile(self.model_path):
             providers = ["CPUExecutionProvider"]
             if device == "cuda":
                 if "CUDAExecutionProvider" in onnxruntime.get_available_providers():
@@ -44,7 +44,7 @@ class FeatureExtractor(object):
             # Configure session options for optimal performance
             session_options = onnxruntime.SessionOptions()
             # Use CPU core count for optimal performance
-            import os
+
             cpu_count = os.cpu_count() or 1
             session_options.intra_op_num_threads = min(4, cpu_count)  # Max 4 threads for ops
             session_options.inter_op_num_threads = 1  # Keep sequential between operations
