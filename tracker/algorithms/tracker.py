@@ -10,7 +10,8 @@ import numpy as np
 # from tracklab.pipeline.imagelevel_module import ImageLevelModule
 from tracklab.utils.coordinates import sanitize_bbox_ltrb
 from tracker.utils.pipeline_base import MessageType, ProcessConfig, PipelineMessage
-from tracker.algorithms.utils.botsort import BotSortCust
+# from tracker.algorithms.utils.botsort import BotSortCust
+from tracker.algorithms.utils.strongsort import StrongSortCust
 
 log = logging.getLogger(__name__)
 
@@ -22,12 +23,18 @@ class Tracker():
         self.device = device
         self.batch_size = batch_size
         self.reid_weights = cfg.get("reid_weights", None)
-        self.tracker_model = BotSortCust(
+        self.tracker_model = StrongSortCust(
             reid_weights=Path(self.reid_weights),
             device=device,
             half=True,
             with_reid=True,
         )
+        # self.tracker_model = BotSortCust(
+        #     reid_weights=Path(self.reid_weights),
+        #     device=device,
+        #     half=True,
+        #     with_reid=True,
+        # )
 
     def process(self, input: PipelineMessage) -> PipelineMessage:
         images = [input.data['frame']]
