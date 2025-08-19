@@ -4,10 +4,10 @@ import numpy as np
 import onnxruntime
 import cv2
 
-from torchreid.utils import (
-    check_isfile, load_pretrained_weights, compute_model_complexity
-)
-from torchreid.models import build_model
+# from torchreid.utils import (
+#     check_isfile, load_pretrained_weights, compute_model_complexity
+# )
+# from torchreid.models import build_model
 from tracker.utils.pipeline_base import MessageType, ProcessConfig, PipelineMessage
 
 import logging
