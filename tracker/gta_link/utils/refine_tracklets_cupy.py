@@ -41,7 +41,18 @@ from scipy.spatial.distance import cdist
 
 from .Tracklet import Tracklet
 
+logging.basicConfig(level=logging.DEBUG)
 log = logging.getLogger(__name__)
+
+
+def ensure_python_int(value):
+    """Ensure a value is a Python int, converting from numpy/cupy arrays if needed."""
+    if hasattr(value, 'item'):  # NumPy/CuPy scalar
+        return int(value.item())
+    elif hasattr(value, '__int__'):
+        return int(value)
+    else:
+        return value
 
 
 class CuPyTrackletRefiner:
@@ -108,13 +119,31 @@ class CuPyTrackletRefiner:
                     point_gpu = embs_gpu[idx:idx+1]
                     distances = cp.linalg.norm(point_gpu - centers_gpu, axis=1)
                     nearest_cluster = cp.argmin(distances)
-                    labels[idx] = unique_labels[int(nearest_cluster)]
+                    log.debug(f"GPU nearest_cluster type: {type(nearest_cluster)}, value: {nearest_cluster}")
+                    try:
+                        cluster_idx = ensure_python_int(nearest_cluster)
+                        labels[idx] = unique_labels[cluster_idx]
+                        log.debug(f"Successfully assigned label: {unique_labels[cluster_idx]}")
+                    except Exception as e:
+                        log.error(f"Error accessing unique_labels with nearest_cluster: {e}")
+                        log.error(f"nearest_cluster: {nearest_cluster} (type: {type(nearest_cluster)})")
+                        log.error(f"unique_labels: {unique_labels}")
+                        raise
             else:
                 # CPU fallback
                 for idx in noise_indices:
                     distances = cdist([embs_scaled[idx]], cluster_centers, metric='cosine')
                     nearest_cluster = np.argmin(distances)
-                    labels[idx] = unique_labels[nearest_cluster]
+                    log.debug(f"CPU nearest_cluster type: {type(nearest_cluster)}, value: {nearest_cluster}")
+                    try:
+                        cluster_idx = ensure_python_int(nearest_cluster)
+                        labels[idx] = unique_labels[cluster_idx]
+                        log.debug(f"Successfully assigned label: {unique_labels[cluster_idx]}")
+                    except Exception as e:
+                        log.error(f"Error accessing unique_labels with nearest_cluster: {e}")
+                        log.error(f"nearest_cluster: {nearest_cluster} (type: {type(nearest_cluster)})")
+                        log.error(f"unique_labels: {unique_labels}")
+                        raise
         
         n_clusters = len(unique_labels)
         
@@ -521,7 +550,16 @@ class CuPyTrackletRefiner:
                     new_dist_matrix[i, j] = dist_matrix[old_i, old_j]
         
         # Update the merged tracklet's distances (only one row/column)
-        merged_tracklet = tracklets[tracklet_ids[merged_idx]]
+        log.debug(f"Accessing merged tracklet: tracklet_ids[{merged_idx}] from {len(tracklet_ids)} items")
+        log.debug(f"merged_idx type: {type(merged_idx)}, tracklet_ids type: {type(tracklet_ids)}")
+        
+        try:
+            merged_tracklet = tracklets[tracklet_ids[merged_idx]]
+        except Exception as e:
+            log.error(f"Error accessing merged tracklet: {e}")
+            log.error(f"merged_idx: {merged_idx} (type: {type(merged_idx)})")
+            log.error(f"tracklet_ids: {tracklet_ids}")
+            raise
         
         # Extract features for the merged tracklet
         if merged_tracklet.features:
@@ -538,7 +576,14 @@ class CuPyTrackletRefiner:
                 if old_idx == merged_idx:
                     continue
                 
-                other_tracklet = tracklets[tracklet_ids[old_idx]]
+                log.debug(f"Accessing other tracklet: tracklet_ids[{old_idx}] (type: {type(old_idx)})")
+                try:
+                    other_tracklet = tracklets[tracklet_ids[old_idx]]
+                except Exception as e:
+                    log.error(f"Error accessing other tracklet at old_idx {old_idx}: {e}")
+                    log.error(f"old_idx type: {type(old_idx)}")
+                    log.error(f"tracklet_ids length: {len(tracklet_ids)}")
+                    raise
                 other_times = set(other_tracklet.times)
                 
                 # Check temporal overlap
@@ -579,6 +624,9 @@ class CuPyTrackletRefiner:
         working_tracklets = tracklets.copy()
         tracklet_ids = list(working_tracklets.keys())
         
+        log.debug(f"Initial tracklet_ids: {tracklet_ids} (type: {type(tracklet_ids)})")
+        log.debug(f"tracklet_ids item types: {[type(x) for x in tracklet_ids[:3]]}")  # First 3 items
+        
         # Initial distance matrix computation
         dist_matrix = self.get_distance_matrix_gpu(working_tracklets)
         
@@ -586,9 +634,16 @@ class CuPyTrackletRefiner:
         max_iterations = len(tracklets) * 2  # Safety limit
         
         for iteration in range(max_iterations):
+            log.debug(f"=== Merge iteration {iteration} ===")
+            log.debug(f"Current tracklet_ids: {tracklet_ids}")
+            log.debug(f"Working tracklets count: {len(working_tracklets)}")
+            
             # Create mask for non-diagonal elements
             n = dist_matrix.shape[0]
+            log.debug(f"Distance matrix shape: {dist_matrix.shape}")
+            
             if n <= 1:
+                log.debug("Breaking: matrix size <= 1")
                 break
             
             if self.use_gpu:
@@ -607,13 +662,30 @@ class CuPyTrackletRefiner:
             # Find indices of minimum distance
             if self.use_gpu:
                 min_idx = cp.unravel_index(cp.argmin(masked_distances), masked_distances.shape)
-                track1_idx, track2_idx = int(min_idx[0]), int(min_idx[1])
+                track1_idx, track2_idx = ensure_python_int(min_idx[0]), ensure_python_int(min_idx[1])
+                log.debug(f"GPU: min_idx types: {type(min_idx[0])}, {type(min_idx[1])}")
+                log.debug(f"GPU: track indices: {track1_idx} ({type(track1_idx)}), {track2_idx} ({type(track2_idx)})")
             else:
                 min_idx = np.unravel_index(np.argmin(masked_distances), masked_distances.shape)
-                track1_idx, track2_idx = min_idx[0], min_idx[1]
+                track1_idx, track2_idx = ensure_python_int(min_idx[0]), ensure_python_int(min_idx[1])
+                log.debug(f"CPU: min_idx types: {type(min_idx[0])}, {type(min_idx[1])}")
+                log.debug(f"CPU: track indices: {track1_idx} ({type(track1_idx)}), {track2_idx} ({type(track2_idx)})")
             
-            # Get tracklets
-            tid1, tid2 = tracklet_ids[track1_idx], tracklet_ids[track2_idx]
+            # Debug tracklet_ids access
+            log.debug(f"tracklet_ids length: {len(tracklet_ids)}, type: {type(tracklet_ids)}")
+            log.debug(f"Accessing tracklet_ids[{track1_idx}] and tracklet_ids[{track2_idx}]")
+            
+            # Get tracklets with error handling
+            try:
+                tid1, tid2 = tracklet_ids[track1_idx], tracklet_ids[track2_idx]
+                log.debug(f"Successfully got tid1: {tid1}, tid2: {tid2}")
+            except Exception as e:
+                log.error(f"Error accessing tracklet_ids: {e}")
+                log.error(f"tracklet_ids: {tracklet_ids}")
+                log.error(f"track1_idx: {track1_idx} (type: {type(track1_idx)})")
+                log.error(f"track2_idx: {track2_idx} (type: {type(track2_idx)})")
+                raise
+                
             track1, track2 = working_tracklets[tid1], working_tracklets[tid2]
             
             # Check temporal overlap
@@ -650,7 +722,19 @@ class CuPyTrackletRefiner:
             )
             
             # Update tracklet_ids AFTER matrix update
-            tracklet_ids.pop(removed_idx)
+            log.debug(f"Before pop: tracklet_ids = {tracklet_ids}, removing index {removed_idx}")
+            log.debug(f"removed_idx type: {type(removed_idx)}")
+            
+            try:
+                popped_id = tracklet_ids.pop(removed_idx)
+                log.debug(f"Successfully popped tracklet ID: {popped_id}")
+                log.debug(f"After pop: tracklet_ids = {tracklet_ids}")
+            except Exception as e:
+                log.error(f"Error popping from tracklet_ids: {e}")
+                log.error(f"removed_idx: {removed_idx} (type: {type(removed_idx)})")
+                log.error(f"tracklet_ids length: {len(tracklet_ids)}")
+                log.error(f"tracklet_ids: {tracklet_ids}")
+                raise
             
             # Update indices after removal
             if track1_idx > removed_idx:
