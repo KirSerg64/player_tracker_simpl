@@ -291,6 +291,7 @@ def check_spatial_constraints(trk_1, trk_2, max_x_range, max_y_range):
     return inSpatialRange
 
 def merge_tracklets(tracklets, seq2Dist, Dist, seq_name=None, max_x_range=None, max_y_range=None, merge_dist_thres=None):
+    logger.info(f"===========Using original CPU implementaion=============")
     seq2Dist[seq_name] = Dist                               # save all seqs distance matrix, debug line, delete later
     # displayDist(seq2Dist, seq_name, isMerged=False, isSplit=True)         # used to display Dist, debug line, delete later=
 
