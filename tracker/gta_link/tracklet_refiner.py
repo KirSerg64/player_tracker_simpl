@@ -70,12 +70,17 @@ CUPY_AVAILABLE = _check_cupy_available()
 # Always import CPU functions as fallback
 from tracker.gta_link.utils.refine_tracklets_batched import (
     split_tracklets as split_tracklets_cpu,
-    merge_tracklets as merge_tracklets_cpu,
+    # merge_tracklets as merge_tracklets_cpu,
     merge_tracklets_batched as merge_tracklets_batched_cpu,
     merge_tracklets_batched_parallel_processes,
     get_spatial_constraints as get_spatial_constraints_cpu,
 )
 
+from tracker.gta_link.utils.refine_tracklets import (
+    # split_tracklets as split_tracklets_cpu,
+    merge_tracklets as merge_tracklets_cpu,
+    # get_spatial_constraints as get_spatial_constraints_cpu,
+)
 
 from tracker.utils.pipeline_base import MessageType, PipelineMessage
 
