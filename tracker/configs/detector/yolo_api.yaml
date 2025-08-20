@@ -6,4 +6,4 @@ cfg:
   # path_to_checkpoint: "${model_dir}/yolo/yolov11_A100_640_batch1_fp16_ultra.engine"  
   use_slicer: False
   classes: ["ball", "goalkeeper", "person", "player", "referee"]
-  min_confidence: 0.4
+  min_confidence: 0.6

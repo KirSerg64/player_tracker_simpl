@@ -31,7 +31,7 @@ COPY --chown=appuser:appuser tracker/ ./tracker
 # Copy pretrained models (if they weren't included in base image)
 COPY --chown=appuser:appuser pretrained_models/yolo/yolov11_A100_640_batch1_fp16_ultra.engine ./pretrained_models/yolo/
 # COPY --chown=appuser:appuser pretrained_models/reid/prtreid-fixed-opset17-simplified.onnx ./pretrained_models/reid/
-COPY --chown=appuser:appuser pretrained_models/reid/prtreid-onnx-opset20-simplified.onnx ./pretrained_models/reid/
+# COPY --chown=appuser:appuser pretrained_models/reid/prtreid-onnx-opset20-simplified.onnx ./pretrained_models/reid/
 # COPY --chown=appuser:appuser pretrained_models/reid/sports_model.pth.tar-60 ./pretrained_models/gta_link/
 COPY --chown=appuser:appuser pretrained_models/reid/feature_extractor_osnet_x1_0.onnx ./pretrained_models/reid/
 # COPY --chown=appuser:appuser pretrained_models/calibration/ ./pretrained_models/calibration/
@@ -44,7 +44,7 @@ RUN uv pip install -e ".[gpu]" ".[tensorrt]"
 # RUN pip install --no-cache-dir albumentations==1.4.3 boto3
 # RUN pip install --no-cache-dir --no-deps -e ./plugins/calibration
 # RUN pip install --no-cache-dir --no-deps -e .
-RUN pip install --no-cache-dir boto3 boxmot==15.0.2
+RUN pip install --no-cache-dir boto3 boxmot==15.0.2 cupy-cuda12x
 
 # Copy the script and make it executable
 # COPY --chown=appuser:appuser run_parallel.sh /app/

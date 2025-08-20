@@ -19,6 +19,7 @@ from queue import Queue, Empty
 import multiprocessing as mp  # For CPU count only
 import time
 
+import torch
 from tracklab.utils.coordinates import ltrb_to_ltwh
 from tracklab.pipeline.videolevel_module import VideoLevelModule
 from tracker.gta_link.utils.Tracklet import Tracklet
@@ -38,39 +39,42 @@ from tracker.gta_link.utils.Tracklet import Tracklet
 #     merge_tracklets_batched_parallel_processes
 # )
 
-# Import GPU-accelerated version if available
-try:
-    from tracker.gta_link.utils.refine_tracklets_cupy import (
-        find_consecutive_segments,
-        query_subtracks,
-        get_distance_matrix,
-        detect_id_switch,
-        get_spatial_constraints,
-        split_tracklets,
-        merge_tracklets,
-        merge_tracklets_gpu,
-        merge_tracklets_batched,
-        benchmark_gpu_vs_cpu
-    )
-    GPU_AVAILABLE = True
-    print("🚀 GPU acceleration available with CuPy")
-except ImportError as e:
-    GPU_AVAILABLE = False
-    print(f"GPU acceleration not available: {e}")
-    from tracker.gta_link.utils.refine_tracklets_batched import (
-        split_tracklets,
-        merge_tracklets,
-        merge_tracklets_batched,
-        merge_tracklets_batched_parallel_processes,
-        get_spatial_constraints,
-    )
-    # Define dummy functions for missing GPU-specific functions
-    def merge_tracklets_gpu(*args, **kwargs):
-        return merge_tracklets(*args, **kwargs)
-    
-    def benchmark_gpu_vs_cpu(*args, **kwargs):
-        log.warning("GPU benchmarking not available without CuPy")
-        return None
+# Check if CuPy is available (but don't import yet)
+def _check_cupy_available():
+    """Check if CuPy is available without importing it."""
+    try:
+        import cupy
+        # Try to actually use CUDA to check if it works
+        available = cupy.cuda.is_available()
+        if available:
+            print("CuPy available with CUDA support")
+        return available
+    except ImportError:
+        print("CuPy not installed. Install with: pip install cupy-cuda12x")
+        return False
+    except Exception as e:
+        # Handle CUDA driver issues, insufficient driver version, etc.
+        error_msg = str(e)
+        if "CUDA driver version is insufficient" in error_msg:
+            print("CuPy installed but CUDA driver version is insufficient")
+            print("   Please update your NVIDIA GPU drivers")
+        elif "cudaErrorNoDevice" in error_msg:
+            print("No CUDA devices found")
+            print("   Running on CPU-only system")
+        else:
+            print(f"CuPy available but GPU not accessible: {e}")
+        return False
+
+CUPY_AVAILABLE = _check_cupy_available()
+
+# Always import CPU functions as fallback
+from tracker.gta_link.utils.refine_tracklets_batched import (
+    split_tracklets as split_tracklets_cpu,
+    merge_tracklets as merge_tracklets_cpu,
+    merge_tracklets_batched as merge_tracklets_batched_cpu,
+    merge_tracklets_batched_parallel_processes,
+    get_spatial_constraints as get_spatial_constraints_cpu,
+)
 
 
 from tracker.utils.pipeline_base import MessageType, PipelineMessage
@@ -115,6 +119,9 @@ class TrackletsRefiner():
         self.gpu_batch_size = getattr(cfg, 'gpu_batch_size', None)  # Auto-tune if None
         self.enable_benchmarking = getattr(cfg, 'enable_benchmarking', False)
 
+        # Dynamic import based on use_gpu_acceleration flag and availability
+        self._setup_functions()
+
         video_name = "refined_tracklets.pkl"
         self.save_dir = os.path.join("outputs", video_name)
 
@@ -135,15 +142,108 @@ class TrackletsRefiner():
         log.info(f"OPTIMIZED THREADING approach enabled with batch_size={self.batch_size} (CPU work delegated to existing parallel functions)")
         
         # GPU acceleration status
-        if self.use_gpu_acceleration and GPU_AVAILABLE:
-            log.info("🚀 GPU acceleration ENABLED for tracklet merging")
+        if self.use_gpu_acceleration and self.GPU_AVAILABLE:
+            log.info("GPU acceleration ENABLED for tracklet merging")
             if self.enable_benchmarking:
-                log.info("🏁 GPU vs CPU benchmarking ENABLED")
-        elif self.use_gpu_acceleration and not GPU_AVAILABLE:
-            log.warning("⚠️  GPU acceleration requested but CuPy not available - using CPU fallback")
-            log.info("💡 To enable GPU acceleration, install CuPy: pip install cupy-cuda12x")
+                log.info("GPU vs CPU benchmarking ENABLED")
+        elif self.use_gpu_acceleration and not self.GPU_AVAILABLE:
+            log.warning("GPU acceleration requested but CuPy not available - using CPU fallback")
+            log.info("To enable GPU acceleration, install CuPy: pip install cupy-cuda12x")
         else:
-            log.info("🐌 Using CPU implementation for tracklet merging")
+            log.info("Using CPU implementation for tracklet merging")
+
+    def _setup_functions(self):
+        """Dynamically import and assign functions based on GPU acceleration settings."""
+        # Check if we should use GPU acceleration
+        gpu_requested = self.use_gpu_acceleration
+        gpu_available = CUPY_AVAILABLE
+        
+        self.GPU_AVAILABLE = gpu_requested and gpu_available
+        
+        if self.GPU_AVAILABLE:
+            try:
+                # Import GPU functions
+                from tracker.gta_link.utils.refine_tracklets_cupy import (
+                    find_consecutive_segments,
+                    query_subtracks,
+                    get_distance_matrix,
+                    detect_id_switch,
+                    get_spatial_constraints,
+                    split_tracklets,
+                    merge_tracklets,
+                    merge_tracklets_gpu,
+                    merge_tracklets_batched,
+                    benchmark_gpu_vs_cpu
+                )
+                
+                # Assign GPU functions
+                self.find_consecutive_segments = find_consecutive_segments
+                self.query_subtracks = query_subtracks
+                self.get_distance_matrix = get_distance_matrix
+                self.detect_id_switch = detect_id_switch
+                self.get_spatial_constraints = get_spatial_constraints
+                self.split_tracklets = split_tracklets
+                self.merge_tracklets = merge_tracklets
+                self.merge_tracklets_gpu = merge_tracklets_gpu
+                self.merge_tracklets_batched = merge_tracklets_batched
+                self.benchmark_gpu_vs_cpu = benchmark_gpu_vs_cpu
+                
+                print("GPU acceleration enabled with CuPy")
+                
+            except ImportError as e:
+                print(f"Failed to import GPU functions: {e}")
+                self.GPU_AVAILABLE = False
+                self._setup_cpu_functions()
+        else:
+            self._setup_cpu_functions()
+            
+    def _setup_cpu_functions(self):
+        """Setup CPU-only functions."""
+        # Assign CPU functions
+        self.get_spatial_constraints = get_spatial_constraints_cpu
+        self.split_tracklets = split_tracklets_cpu
+        self.merge_tracklets = merge_tracklets_cpu
+        self.merge_tracklets_batched = merge_tracklets_batched_cpu
+        self.merge_tracklets_batched_parallel_processes = merge_tracklets_batched_parallel_processes
+        
+        # Create dummy GPU functions
+        def merge_tracklets_gpu(*args, **kwargs):
+            return self.merge_tracklets(*args, **kwargs)
+        
+        def benchmark_gpu_vs_cpu(*args, **kwargs):
+            log.warning("GPU benchmarking not available without CuPy")
+            return None
+            
+        self.merge_tracklets_gpu = merge_tracklets_gpu
+        self.benchmark_gpu_vs_cpu = benchmark_gpu_vs_cpu
+        
+        print("Using CPU implementation")
+
+    def get_gpu_info(self):
+        """Get detailed information about GPU acceleration status."""
+        info = {
+            'cupy_available': CUPY_AVAILABLE,
+            'use_gpu_acceleration': self.use_gpu_acceleration,
+            'gpu_available': self.GPU_AVAILABLE,
+            'functions_loaded': 'GPU' if self.GPU_AVAILABLE else 'CPU'
+        }
+        
+        if CUPY_AVAILABLE:
+            try:
+                import cupy as cp
+                info['cuda_devices'] = cp.cuda.runtime.getDeviceCount()
+                info['current_device'] = cp.cuda.runtime.getDevice()
+                # Get memory info for current device
+                free_mem, total_mem = cp.cuda.runtime.memGetInfo()
+                info['gpu_memory'] = {
+                    'free_gb': free_mem / (1024**3),
+                    'total_gb': total_mem / (1024**3),
+                    'used_gb': (total_mem - free_mem) / (1024**3)
+                }
+            except Exception as e:
+                info['gpu_error'] = str(e)
+                
+        return info
 
 
     def process(self, input: PipelineMessage) -> PipelineMessage:
@@ -255,18 +355,18 @@ class TrackletsRefiner():
                 split_tracklets = tracklets
             
             # Choose merge strategy based on configuration and availability
-            if self.use_gpu_acceleration and GPU_AVAILABLE:
-                log.debug(f"🚀 Using GPU acceleration for batch of {len(split_tracklets)} tracklets")
+            if self.use_gpu_acceleration and self.GPU_AVAILABLE:
+                log.debug(f"Using GPU acceleration for batch of {len(split_tracklets)} tracklets")
                 
                 # Run benchmark if enabled (only on first batch)
                 if self.enable_benchmarking and not hasattr(self, '_first_batch_processed'):
                     self._first_batch_processed = True
                     if len(split_tracklets) >= 10:  # Only benchmark with sufficient data
-                        log.info("🏁 Running GPU vs CPU benchmark...")
-                        benchmark_gpu_vs_cpu(split_tracklets, self.merge_dist_thres, max_x_range, max_y_range)
+                        log.info("Running GPU vs CPU benchmark...")
+                        self.benchmark_gpu_vs_cpu(split_tracklets, self.merge_dist_thres, max_x_range, max_y_range)
                 
                 # Use GPU-accelerated merging
-                merged_tracklets = merge_tracklets_gpu(
+                merged_tracklets = self.merge_tracklets_gpu(
                     split_tracklets,
                     merge_dist_thres=self.merge_dist_thres,
                     max_x_range=max_x_range,
@@ -274,7 +374,7 @@ class TrackletsRefiner():
                 )
             else:
                 # Use existing PROVEN parallel merge function - THIS is where true CPU parallelism happens
-                merged_tracklets = merge_tracklets_batched_parallel_processes(
+                merged_tracklets = self.merge_tracklets_batched_parallel_processes(
                     split_tracklets,
                     seq2Dist={},
                     batch_size=min(self.batch_size // 4, 20),  # Smaller sub-batches for parallel processing
@@ -403,16 +503,16 @@ class TrackletsRefiner():
         # Perform final merge using GPU acceleration when available
         max_x_range, max_y_range = self._get_spatial_constraints(validated_tracklets)
         
-        if self.use_gpu_acceleration and GPU_AVAILABLE:
-            log.info(f"🚀 Using GPU acceleration for final merge of {len(validated_tracklets)} tracklets")
-            final_merged = merge_tracklets_gpu(
+        if self.use_gpu_acceleration and self.GPU_AVAILABLE:
+            log.info(f"Using GPU acceleration for final merge of {len(validated_tracklets)} tracklets")
+            final_merged = self.merge_tracklets_gpu(
                 validated_tracklets,
                 merge_dist_thres=self.merge_dist_thres,
                 max_x_range=max_x_range,
                 max_y_range=max_y_range
             )
         else:
-            final_merged = merge_tracklets(
+            final_merged = self.merge_tracklets(
                 validated_tracklets,
                 merge_dist_thres=self.merge_dist_thres,
                 max_x_range=max_x_range,
@@ -472,7 +572,7 @@ class TrackletsRefiner():
     def _get_spatial_constraints(self, tracklets_dict: Dict) -> tuple:
         """Get spatial constraints for merging."""
         try:
-            max_x_range, max_y_range = get_spatial_constraints(tracklets_dict, self.spatial_factor)
+            max_x_range, max_y_range = self.get_spatial_constraints(tracklets_dict, self.spatial_factor)
             log.debug(f"Spatial constraints: x_range={max_x_range}, y_range={max_y_range}")
             return max_x_range, max_y_range
         except Exception as e:
@@ -482,7 +582,7 @@ class TrackletsRefiner():
     def _split_tracklets(self, tracklets_dict: Dict) -> Dict:
         """Split tracklets using DBSCAN clustering."""
         try:
-            return split_tracklets(
+            return self.split_tracklets(
                 tracklets_dict,
                 eps=self.eps,
                 max_k=self.max_k,
@@ -496,9 +596,9 @@ class TrackletsRefiner():
     def _merge_tracklets_batched(self, tracklets_dict: Dict, max_x_range: float, max_y_range: float) -> Dict:
         """Merge tracklets in batches with GPU acceleration when available."""
         try:
-            if self.use_gpu_acceleration and GPU_AVAILABLE:
-                log.debug(f"🚀 Using GPU-accelerated batched merge for {len(tracklets_dict)} tracklets")
-                return merge_tracklets_batched(
+            if self.use_gpu_acceleration and self.GPU_AVAILABLE:
+                log.debug(f"Using GPU-accelerated batched merge for {len(tracklets_dict)} tracklets")
+                return self.merge_tracklets_batched(
                     tracklets_dict,
                     seq2Dist={},  # Empty dict as we're not using it for visualization
                     batch_size=self.batch_size,
@@ -508,7 +608,7 @@ class TrackletsRefiner():
                 )
             else:
                 # Use CPU version
-                return merge_tracklets_batched(
+                return self.merge_tracklets_batched(
                     tracklets_dict,
                     seq2Dist={},  # Empty dict as we're not using it for visualization
                     batch_size=self.batch_size,
@@ -524,9 +624,9 @@ class TrackletsRefiner():
     def _merge_tracklets(self, tracklets_dict: Dict, max_x_range: float, max_y_range: float) -> Dict:
         """Merge tracklets using distance threshold with GPU acceleration when available."""
         try:
-            if self.use_gpu_acceleration and GPU_AVAILABLE:
-                log.debug(f"🚀 Using GPU-accelerated merge for {len(tracklets_dict)} tracklets")
-                return merge_tracklets_gpu(
+            if self.use_gpu_acceleration and self.GPU_AVAILABLE:
+                log.debug(f"Using GPU-accelerated merge for {len(tracklets_dict)} tracklets")
+                return self.merge_tracklets_gpu(
                     tracklets_dict,
                     merge_dist_thres=self.merge_dist_thres,
                     max_x_range=max_x_range,
@@ -534,7 +634,7 @@ class TrackletsRefiner():
                 )
             else:
                 # Use CPU version
-                return merge_tracklets(
+                return self.merge_tracklets(
                     tracklets_dict,
                     merge_dist_thres=self.merge_dist_thres,
                     max_x_range=max_x_range,

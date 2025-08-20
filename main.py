@@ -31,22 +31,31 @@ from tracker.visualization.video_creator import create_final_tracklet_video
 from tracker.utils.statistics import save_all_statistics
 
 os.environ["HYDRA_FULL_ERROR"] = "1"
-# Suppress YOLO outputs globally
-# os.environ["YOLO_VERBOSE"] = "False"
+# Enable YOLO outputs for debugging
+# os.environ["YOLO_VERBOSE"] = "True"
 # Optimal threading for performance (not too restrictive)
-import os
-cpu_count = os.cpu_count() or 1
-os.environ["OMP_NUM_THREADS"] = str(min(4, cpu_count))     # OpenMP threads
-os.environ["MKL_NUM_THREADS"] = str(min(4, cpu_count))     # Intel MKL threads  
-os.environ["NUMEXPR_NUM_THREADS"] = str(min(2, cpu_count)) # NumExpr threads
-os.environ["OPENBLAS_NUM_THREADS"] = str(min(4, cpu_count)) # OpenBLAS threads
+# import os
+# cpu_count = os.cpu_count() or 1
+# os.environ["OMP_NUM_THREADS"] = str(min(4, cpu_count))     # OpenMP threads
+# os.environ["MKL_NUM_THREADS"] = str(min(4, cpu_count))     # Intel MKL threads  
+# os.environ["NUMEXPR_NUM_THREADS"] = str(min(2, cpu_count)) # NumExpr threads
+# os.environ["OPENBLAS_NUM_THREADS"] = str(min(4, cpu_count)) # OpenBLAS threads
 
 log = logging.getLogger(__name__)
-warnings.filterwarnings("ignore")
+# warnings.filterwarnings("ignore")
 
-# # Additional ultralytics silence
+# Enable ultralytics logging for debugging
 # import logging
-# logging.getLogger('ultralytics').setLevel(logging.ERROR)
+# logging.basicConfig(level=logging.INFO)  # Ensure root logger is configured
+# logging.getLogger('ultralytics').setLevel(logging.DEBUG)
+# logging.getLogger('ultralytics.engine').setLevel(logging.DEBUG)
+# logging.getLogger('ultralytics.models').setLevel(logging.DEBUG)
+
+# # Also enable YOLO specific loggers
+# for logger_name in ['yolo', 'YOLO', 'ultralytics']:
+#     logger = logging.getLogger(logger_name)
+#     logger.setLevel(logging.DEBUG)
+#     logger.propagate = True
 
 
 def get_hydra_output_dir():

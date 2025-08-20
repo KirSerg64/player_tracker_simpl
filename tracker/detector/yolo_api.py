@@ -13,16 +13,8 @@ from tracker.utils.pipeline_base import MessageType, ProcessConfig, PipelineMess
 
 log = logging.getLogger(__name__)
 
-
-def collate_fn(batch):
-    idxs = [b[0] for b in batch]
-    images = [b["image"] for _, b in batch]
-    shapes = [b["shape"] for _, b in batch]
-    return idxs, (images, shapes)
-
-
 class YOLOOnnx(ImageLevelModule):
-    collate_fn = collate_fn
+ 
     input_columns = []
     output_columns = [
         "image_id",
@@ -37,21 +29,7 @@ class YOLOOnnx(ImageLevelModule):
         self.cfg = cfg
         self.device = device
         
-        # Suppress all YOLO outputs
-
-        os.environ["YOLO_VERBOSE"] = "False"
-        
-        # Redirect ultralytics logging
-        ultralytics_logger = logging.getLogger('ultralytics')
-        ultralytics_logger.setLevel(logging.ERROR)
-        
-        self.model = YOLO(cfg.path_to_checkpoint, task="detect", verbose=False)
-        
-        # Clear all callbacks to prevent any outputs
-        # self.model.callbacks.clear()
-        
-        # Additional silence settings
-        self.model.overrides['verbose'] = False
+        self.model = YOLO(cfg.path_to_checkpoint, task="detect")
         
         # self.model.to(device)
         self.id = 0
@@ -64,14 +42,14 @@ class YOLOOnnx(ImageLevelModule):
         self.use_slicer = cfg.get("use_slicer", False)
         if self.use_slicer:
             self.slicer = sv.InferenceSlicer(
-                callback=self.callback, thread_workers=1,  # Reduced from 4 to 1
+                callback=self.callback, thread_workers=4,  # Reduced from 4 to 1
             )
 
     # @torch.no_grad()
     def callback(self, image_slice) -> sv.Detections:
         results = self.model.predict(
             image_slice, 
-            device=self.device,
+            # device=self.device,
             verbose=False,
             show=False,
             save=False
@@ -98,7 +76,6 @@ class YOLOOnnx(ImageLevelModule):
             results_by_image = self.model.predict(
                 images, 
                 device=self.device,
-                verbose=False,
                 show=False,
                 save=False,
                 save_txt=False,

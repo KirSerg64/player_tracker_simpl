@@ -75,12 +75,12 @@ class CuPyTrackletRefiner:
                 mempool = cp.get_default_memory_pool()
                 self.gpu_memory_total = cp.cuda.Device().mem_info[1]  # Total memory
                 self.gpu_memory_free = cp.cuda.Device().mem_info[0]   # Free memory
-                log.info(f"🚀 GPU acceleration enabled - {self.gpu_memory_free/1024**3:.1f}GB free memory")
+                log.info(f"GPU acceleration enabled - {self.gpu_memory_free/1024**3:.1f}GB free memory")
             except:
                 log.warning("Could not get GPU memory info")
                 self.gpu_memory_total = self.gpu_memory_free = 1024**3  # 1GB fallback
         else:
-            log.info("🐌 Using CPU fallback")
+            log.info("Using CPU fallback")
 
     def detect_id_switch(self, embs: np.ndarray, eps: float = None, min_samples: int = None, 
                         max_clusters: int = None) -> Tuple[bool, np.ndarray]:
@@ -612,7 +612,7 @@ class CuPyTrackletRefiner:
         if len(tracklets) <= 1:
             return tracklets
         
-        log.info(f"🚀 GPU merging {len(tracklets)} tracklets (threshold: {merge_dist_thres})")
+        log.info(f"GPU merging {len(tracklets)} tracklets (threshold: {merge_dist_thres})")
         start_time = time.time()
         
         # Make working copy
@@ -715,7 +715,7 @@ class CuPyTrackletRefiner:
             merge_count += 1
         
         elapsed = time.time() - start_time
-        log.info(f"✅ GPU merging complete: {len(tracklets)} → {len(working_tracklets)} tracklets "
+        log.info(f"GPU merging complete: {len(tracklets)} → {len(working_tracklets)} tracklets "
                 f"({merge_count} merges in {elapsed:.2f}s)")
         
         return working_tracklets
@@ -729,7 +729,7 @@ class CuPyTrackletRefiner:
         temp_tracklets = {}
         tracklet_items = list(tracklets.items())
         
-        log.info(f"🔥 GPU batched processing: {len(tracklet_items)} tracklets, batch_size={batch_size}")
+        log.info(f"GPU batched processing: {len(tracklet_items)} tracklets, batch_size={batch_size}")
         
         # Process batches
         for i in range(0, len(tracklet_items), batch_size):
@@ -744,7 +744,7 @@ class CuPyTrackletRefiner:
             log.debug(f"Batch result: {len(merged_batch)} tracklets remaining")
         
         # Final cross-batch merge
-        log.info(f"🔗 Final cross-batch merging: {len(temp_tracklets)} tracklets")
+        log.info(f"Final cross-batch merging: {len(temp_tracklets)} tracklets")
         final_result = self.merge_tracklets_gpu(
             temp_tracklets, merge_dist_thres, max_x_range, max_y_range
         )
