@@ -290,10 +290,12 @@ def check_spatial_constraints(trk_1, trk_2, max_x_range, max_y_range):
     # print("Exit while loop")
     return inSpatialRange
 
-def merge_tracklets(tracklets, seq2Dist, Dist, seq_name=None, max_x_range=None, max_y_range=None, merge_dist_thres=None):
+def merge_tracklets(tracklets, max_x_range=None, max_y_range=None, merge_dist_thres=None):
     logger.info(f"===========Using original CPU implementaion=============")
-    seq2Dist[seq_name] = Dist                               # save all seqs distance matrix, debug line, delete later
+    # seq2Dist[seq_name] = Dist                               # save all seqs distance matrix, debug line, delete later
     # displayDist(seq2Dist, seq_name, isMerged=False, isSplit=True)         # used to display Dist, debug line, delete later=
+    # calculate tracklets distance
+    Dist = get_distance_matrix(tracklets)    
 
     idx2tid = {idx: tid for idx, tid in enumerate(tracklets.keys())}
     
@@ -328,7 +330,7 @@ def merge_tracklets(tracklets, seq2Dist, Dist, seq_name=None, max_x_range=None, 
             track1.features += track2.features      # Note: currently we merge track 2 to track 1 without creating a new track
             track1.times += track2.times
             track1.bboxes += track2.bboxes
-            
+            track1.scores += track2.scores
             # update tracklets dictionary
             tracklets[idx2tid[track1_idx]] = track1
             tracklets.pop(idx2tid[track2_idx])
@@ -344,7 +346,7 @@ def merge_tracklets(tracklets, seq2Dist, Dist, seq_name=None, max_x_range=None, 
                 Dist[track1_idx, idx] = get_distance(idx2tid[track1_idx], idx2tid[idx], tracklets[idx2tid[track1_idx]], tracklets[idx2tid[idx]])
                 Dist[idx, track1_idx] = Dist[track1_idx, idx]  # Ensure symmetry
             
-            seq2Dist[seq_name] = Dist                   # used to display Dist
+            # seq2Dist[seq_name] = Dist                   # used to display Dist
             
             # update mask
             diagonal_mask = np.eye(Dist.shape[0], dtype=bool)
@@ -626,7 +628,7 @@ def main():
         # display_Dist(Dist, seq_name, isMerged=False, isSplit=True)
         print(f"----------------Number of tracklets before merging: {len(splitTracklets)}----------------")
         
-        mergedTracklets = merge_tracklets(splitTracklets, seq2Dist, Dist, seq_name=seq_name, max_x_range=max_x_range, max_y_range=max_y_range, merge_dist_thres=args.merge_dist_thres)
+        mergedTracklets = merge_tracklets(splitTracklets, max_x_range=max_x_range, max_y_range=max_y_range, merge_dist_thres=args.merge_dist_thres)
         Dist = get_distance_matrix(mergedTracklets)
         # display_Dist(Dist, seq_name, isMerged=True, isSplit=True)
         print(f"----------------Number of tracklets after merging: {len(mergedTracklets)}----------------")
