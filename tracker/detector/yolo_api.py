@@ -94,13 +94,24 @@ class YOLOOnnx(ImageLevelModule):
                     )
                     self.id += 1
 
-        out_pipeline = PipelineMessage(
-            msg_type=MessageType.DATA,
-            data={
-                'frame': input.data['frame'],
-                "detections": detections
-            },
-            metadata=input.metadata,
-            timestamp=input.timestamp,
-        )
+        if detections:
+            out_pipeline = PipelineMessage(
+                msg_type=MessageType.DATA,
+                data={
+                    'frame': input.data['frame'],
+                    "detections": detections
+                },
+                metadata=input.metadata,
+                timestamp=input.timestamp,
+            )
+        else:
+            out_pipeline = PipelineMessage(
+                msg_type=MessageType.NO_DATA,
+                data={
+                    'frame': input.data['frame'],
+                    "detections": []
+                },
+                metadata=input.metadata,
+                timestamp=input.timestamp,
+            )
         return out_pipeline

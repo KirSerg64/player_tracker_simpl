@@ -48,9 +48,10 @@ class TrackletReadWrite:
             tracklets = pickle.load(f)
         return tracklets
 
-    def save_tracklets(self):
+    @staticmethod
+    def save_tracklets(tracklets: Dict[int, Tracklet], file_path: str):
         """
         Write tracklets to a file.
         """
-        with open(self.file_path, 'wb') as f:
-            pickle.dump(self.tracklets, f)
+        with open(file_path, 'wb') as f:
+            pickle.dump(tracklets, f)

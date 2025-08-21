@@ -14,6 +14,7 @@ log = logging.getLogger(__name__)
 class MessageType(Enum):
     """Types of messages passed between processes"""
     DATA = "data"
+    NO_DATA = "no_data"
     END_OF_STREAM = "end_of_stream"
     ERROR = "error"
     HEARTBEAT = "heartbeat"

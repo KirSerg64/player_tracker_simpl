@@ -44,11 +44,13 @@ RUN uv pip install -e ".[gpu]" ".[tensorrt]"
 # RUN pip install --no-cache-dir albumentations==1.4.3 boto3
 # RUN pip install --no-cache-dir --no-deps -e ./plugins/calibration
 # RUN pip install --no-cache-dir --no-deps -e .
-RUN pip install --no-cache-dir boto3 boxmot==15.0.2 cupy-cuda12x
+RUN pip install --no-cache-dir boto3 boxmot==15.0.2 cupy-cuda12x 
+RUN pip uninstall -y onnxruntime onnxruntime-gpu
+RUN pip install --no-cache-dir onnxruntime-gpu==1.21.1
 
 # Copy the script and make it executable
-# COPY --chown=appuser:appuser run_parallel.sh /app/
-# RUN chmod +x /app/run_parallel.sh
+COPY --chown=appuser:appuser run_parallel.sh /app/
+RUN chmod +x /app/run_parallel.sh
 
 # Create minimal directory structure and cleanup
 RUN mkdir -p /app/data/input /app/data/output /app/logs /app/tmp && \
@@ -72,5 +74,5 @@ ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
 # docker run kvelertak/player_tracker:app python test_hello.py
 # docker run -it kvelertak/player_tracker:app /bin/bash
 # CMD ["python", "test_hello.py"]
-CMD ["python", "main.py", "video_path='/app/data/input/7_06_15fps.mp4'"]
-
+# CMD ["python", "main.py", "video_path='/app/data/input/7_06_15fps.mp4'"]
+CMD ["/app/run_parallel.sh", "/app/data/input/7_06_15fps.mp4", "/app/data/output", "main", "780", "1", "2"]

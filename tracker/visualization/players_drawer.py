@@ -35,7 +35,7 @@ class EllipseDetection(DetectionVisualizer):
                 f"{track_id}",
                 center,
                 fontFace=1,
-                fontScale=1,
+                fontScale=0.7,
                 thickness=1,
                 alignH="c",
                 alignV="c",

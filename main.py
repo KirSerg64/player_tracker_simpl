@@ -128,6 +128,11 @@ def main(cfg):
         )
         log.info(f"Output video will be saved to: {video_path}")
         log.info(f"Output video: {input_width}x{input_height} @ {input_fps} FPS")
+        # image save path
+        img_save_path = Path(output_dir) / "seq_0" / "img1"
+        img_save_path.mkdir(parents=True, exist_ok=True)
+        img_save_path = str(img_save_path)
+        log.info(f"Output images will be saved to: {img_save_path}")
 
     #create object detector
     detector = instantiate(cfg.detector, device=device, batch_size=cfg.modules.detector.batch_size)
@@ -160,22 +165,29 @@ def main(cfg):
         video_result = PipelineMessage(
             msg_type=MessageType.DATA,
             data={
-                'frame': frame,
+                'frame': frame.copy(),
             },
             metadata={
                 'frame_id': frames_processed
             }
         )   
         detections = detector.process(video_result)
-        features = feature_extractor.process(detections)
-        tracklets = tracker.process(features)      
-        tracklet_writer.add_tracklet(tracklets)
+        if detections.msg_type == MessageType.DATA:
+            features = feature_extractor.process(detections)
+            tracklets = tracker.process(features)
+            tracklet_writer.add_tracklet(tracklets)
 
-        if cfg.save_results and video_writer is not None:
-            # Draw frame using visualizers
-            visualizer.draw_detection(tracklets.data['frame'], tracklets.data['tracklets'])
-            # Write to video if required       
-            video_writer.write(tracklets.data['frame'])
+            if cfg.save_results and video_writer is not None:
+                # Draw frame using visualizers
+                visualizer.draw_detection(tracklets.data['frame'], tracklets.data['tracklets'])
+                # Write to video if required       
+                video_writer.write(tracklets.data['frame'])
+        else:
+            log.warning(f"No detections for frame {frames_processed}")
+
+        if cfg.save_results:
+            image_path = f"{img_save_path}/{frames_processed:06d}.jpg"
+            assert cv2.imwrite(image_path, frame), f"Error saving image {image_path}"
 
         # cv2.imshow("Video Reader", tracklets.data['frame'])
         #     # tracker.update()
@@ -197,11 +209,11 @@ def main(cfg):
     # Close progress bar
     progress_bar.close()
 
-    tracklet_writer.save_tracklets()
+    # tracklet_writer.save_tracklets(tracklet_writer.get_tracklets(), tracklet_writer.file_path)
     log.info("Start tracklet refiner.")
 
     final_tracklets = tracklet_refiner._refine_tracklets(tracklet_writer.get_tracklets())
-
+    
     # Finalize tracklet refinement and get final results
     # log.info("Finalizing tracklet refinement...")
     # final_tracklets = tracklet_refiner.finalize_and_get_results()
@@ -209,30 +221,37 @@ def main(cfg):
     
     # Create final video with refined tracklets
     if cfg.save_results and final_tracklets:
-        log.info("Creating final video with refined tracklets...")        
+        _, video_name = os.path.split(cfg.video_path)
+        video_name = os.path.splitext(video_name)[0]
+        final_tracklets_save_path = os.path.join(output_dir, video_name + ".pkl")
+        log.info(f"Final tracklets {len(final_tracklets)} saved to: {final_tracklets_save_path}")
+        tracklet_writer.save_tracklets(final_tracklets, final_tracklets_save_path)
+
+        # log.info("Creating final video with refined tracklets...")      
+
         # Get video properties for statistics
-        cap = cv2.VideoCapture(cfg.video_path)
-        video_fps = cap.get(cv2.CAP_PROP_FPS) if cap.isOpened() else 30.0
-        cap.release()        
+        # cap = cv2.VideoCapture(cfg.video_path)
+        # video_fps = cap.get(cv2.CAP_PROP_FPS) if cap.isOpened() else 15.0
+        # cap.release()        
         # Create final video with refined tracklets
-        refined_video_path = os.path.join(output_dir, "videos_res", "final_refined_tracklets.mp4")
-        create_final_tracklet_video(
-            video_path=cfg.video_path,
-            final_tracklets=final_tracklets,
-            output_path=refined_video_path,
-            show_trajectories=False
-        )
-        # Save comprehensive statistics in all formats
-        save_all_statistics(
-            final_tracklets=final_tracklets,
-            output_dir=output_dir,
-            video_fps=video_fps
-        )
+        # refined_video_path = os.path.join(output_dir, f"{video_name}_refined.mp4")
+        # create_final_tracklet_video(
+        #     video_path=cfg.video_path,
+        #     final_tracklets=final_tracklets,
+        #     output_path=refined_video_path,
+        #     show_trajectories=False
+        # )
+        # # Save comprehensive statistics in all formats
+        # save_all_statistics(
+        #     final_tracklets=final_tracklets,
+        #     output_dir=output_dir,
+        #     video_fps=video_fps
+        # )
         #save to AWS
-        if cfg.save_to_aws:
-            date_time = datetime.now().strftime("%Y%m%d_%H%M%S")
-            save_name = f"full_result_video_{date_time}.mp4"
-            load_file_to_bucket(refined_video_path, save_name)
+        # if cfg.save_to_aws:
+        #     date_time = datetime.now().strftime("%Y%m%d_%H%M%S")
+        #     save_name = f"full_result_video_{date_time}.mp4"
+        #     load_file_to_bucket(refined_video_path, save_name)
 
     # cv2.destroyAllWindows()
     
