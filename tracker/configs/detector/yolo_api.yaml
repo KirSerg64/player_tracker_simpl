@@ -2,8 +2,8 @@ _target_: tracker.detector.yolo_api.YOLOOnnx
 batch_size: 8
 cfg:
   # path_to_checkpoint: "${model_dir}/yolo/yolov11_football_epoch300_batch16_varinput.onnx" 
-  # path_to_checkpoint: "${model_dir}/yolo/yolov11_L4_640_batch1_int8_simplified_ultra.engine"
-  path_to_checkpoint: "${model_dir}/yolo/yolov11_A100_640_batch1_fp16_ultra.engine"  
+  path_to_checkpoint: "${model_dir}/yolo/yolov11_L4_640_batch1_int8_simplified_ultra.engine"
+  # path_to_checkpoint: "${model_dir}/yolo/yolov11_A100_640_batch1_fp16_ultra.engine"  
   use_slicer: False
   classes: ["ball", "goalkeeper", "person", "player", "referee"]
   min_confidence: 0.5

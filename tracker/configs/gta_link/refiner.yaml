@@ -9,7 +9,7 @@ cfg:
   eps: 0.7                   # DBSCAN epsilon parameter for splitting
   min_samples: 10              # DBSCAN minimum samples parameter
   max_k: 3                   # Maximum number of clusters for splitting
-  min_len: 30                 # Minimum tracklet length threshold
+  min_len: 100                 # Minimum tracklet length threshold for splitting
 
 # Tracklet merging parameters
   use_connect: true
