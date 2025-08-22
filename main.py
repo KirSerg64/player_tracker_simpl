@@ -227,26 +227,26 @@ def main(cfg):
         log.info(f"Final tracklets {len(final_tracklets)} saved to: {final_tracklets_save_path}")
         tracklet_writer.save_tracklets(final_tracklets, final_tracklets_save_path)
 
-        # log.info("Creating final video with refined tracklets...")      
+        log.info("Creating final video with refined tracklets...")      
 
         # Get video properties for statistics
-        # cap = cv2.VideoCapture(cfg.video_path)
-        # video_fps = cap.get(cv2.CAP_PROP_FPS) if cap.isOpened() else 15.0
-        # cap.release()        
+        cap = cv2.VideoCapture(cfg.video_path)
+        video_fps = cap.get(cv2.CAP_PROP_FPS) if cap.isOpened() else 25.0
+        cap.release()        
         # Create final video with refined tracklets
-        # refined_video_path = os.path.join(output_dir, f"{video_name}_refined.mp4")
-        # create_final_tracklet_video(
-        #     video_path=cfg.video_path,
-        #     final_tracklets=final_tracklets,
-        #     output_path=refined_video_path,
-        #     show_trajectories=False
-        # )
-        # # Save comprehensive statistics in all formats
-        # save_all_statistics(
-        #     final_tracklets=final_tracklets,
-        #     output_dir=output_dir,
-        #     video_fps=video_fps
-        # )
+        refined_video_path = os.path.join(output_dir, f"{video_name}_refined.mp4")
+        create_final_tracklet_video(
+            video_path=cfg.video_path,
+            final_tracklets=final_tracklets,
+            output_path=refined_video_path,
+            show_trajectories=False
+        )
+        # Save comprehensive statistics in all formats
+        save_all_statistics(
+            final_tracklets=final_tracklets,
+            output_dir=output_dir,
+            video_fps=video_fps
+        )
         #save to AWS
         # if cfg.save_to_aws:
         #     date_time = datetime.now().strftime("%Y%m%d_%H%M%S")
