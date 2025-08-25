@@ -136,12 +136,12 @@ def build_tensorrt_engine(
     log.info(f"Engine num bindings: {engine.num_bindings}")
     
     for i in range(engine.num_bindings):
-        binding_name = engine.get_binding_name(i)
-        binding_shape = engine.get_binding_shape(i)
-        binding_dtype = engine.get_binding_dtype(i)
-        is_input = engine.binding_is_input(i)
-        log.info(f"Binding {i}: {binding_name} - {'Input' if is_input else 'Output'} - Shape: {binding_shape} - Dtype: {binding_dtype}")
-    
+        tensor_name = engine.get_tensor_name(i)
+        tensor_shape = engine.get_tensor_shape(i)
+        tensor_dtype = engine.get_tensor_dtype(i)
+        is_input = engine.get_tensor_mode(tensor_name) == trt.TensorIOMode.INPUT
+        log.info(f"Binding {i}: {tensor_name} - {'Input' if is_input else 'Output'} - Shape: {tensor_shape} - Dtype: {tensor_dtype}")
+
     return True
 
 
