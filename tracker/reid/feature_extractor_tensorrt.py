@@ -34,7 +34,7 @@ def check_cuda_errors(result):
         raise RuntimeError(f"CUDA runtime error: {error_string}")
 
 
-class TensorRTFeatureExtractor(object):
+class FeatureExtractorTensorRT(object):
     """TensorRT-optimized feature extractor for high-performance inference."""
 
     def __init__(
@@ -167,7 +167,6 @@ class TensorRTFeatureExtractor(object):
         self._allocate_memory()
         
         log.info(f"TensorRT engine loaded successfully: {self.model_path}")
-        log.info(f"Engine max batch size: {self.engine.max_batch_size}")
 
     def _allocate_memory(self):
         """Allocate GPU and CPU memory for inputs and outputs."""
@@ -203,7 +202,7 @@ class TensorRTFeatureExtractor(object):
             
             self.bindings.append(int(device_mem))
             
-            if self.engine.binding_is_input(i):
+            if self.engine.get_tensor_mode(tensor_name) == trt.TensorIOMode.INPUT:
                 self.inputs.append({
                     'name': tensor_name,
                     'host': host_mem,
@@ -458,20 +457,3 @@ class TensorRTFeatureExtractor(object):
             log.warning(f"Error during TensorRT cleanup: {e}")
 
 
-# Fallback to ONNX if TensorRT is not available
-class FeatureExtractorTensorRT(object):
-    """
-    TensorRT feature extractor with automatic fallback to ONNX.
-    """
-    
-    def __new__(cls, cfg, device, batch_size, **kwargs):
-        if TENSORRT_AVAILABLE and device == "cuda":
-            try:
-                return TensorRTFeatureExtractor(cfg, device, batch_size, **kwargs)
-            except Exception as e:
-                log.warning(f"Failed to initialize TensorRT feature extractor: {e}")
-                log.info("Falling back to ONNX feature extractor")
-        
-        # Fallback to original ONNX implementation
-        from tracker.reid.feature_extractor import FeatureExtractor
-        return FeatureExtractor(cfg, device, batch_size, **kwargs)
