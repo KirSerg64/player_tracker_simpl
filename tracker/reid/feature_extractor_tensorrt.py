@@ -73,6 +73,7 @@ class FeatureExtractorTensorRT(object):
         # Performance monitoring
         self.inference_times = []
         self.warmup_done = False
+        self._dtype_warned = False  # Debug flag for dtype warnings
         
         # Setup CUDA context
         self._setup_cuda()
@@ -322,9 +323,33 @@ class FeatureExtractorTensorRT(object):
             # Copy input data to pinned host memory
             input_flat = input_batch.flatten().astype(self.inputs[0]['dtype'])
             
-            # Convert host memory pointer to numpy array and copy data
+            # Convert host memory pointer to numpy array with correct dtype and copy data
             host_ptr = self.inputs[0]['host']
-            host_array = np.ctypeslib.as_array(host_ptr, shape=input_flat.shape)
+            
+            # More robust dtype handling
+            try:
+                host_array = np.ctypeslib.as_array(
+                    host_ptr, 
+                    shape=input_flat.shape
+                ).view(dtype=self.inputs[0]['dtype'])  # Ensure correct dtype
+            except ValueError as e:
+                # Fallback: create array with correct dtype and copy manually
+                log.warning(f"Dtype view failed, using fallback: {e}")
+                expected_size = input_flat.size * np.dtype(self.inputs[0]['dtype']).itemsize
+                host_bytes = np.ctypeslib.as_array(host_ptr, shape=(expected_size,)).view(dtype=np.uint8)
+                host_array = host_bytes.view(dtype=self.inputs[0]['dtype']).reshape(input_flat.shape)
+            
+            # Debug: Verify dtypes match
+            if self.verbose and hasattr(self, '_dtype_warned') and not self._dtype_warned:
+                log.info(f"Input dtypes - input_flat: {input_flat.dtype}, host_array: {host_array.dtype}, expected: {self.inputs[0]['dtype']}")
+                self._dtype_warned = True
+            
+            # Verify dtypes match before copying
+            if input_flat.dtype != host_array.dtype:
+                log.warning(f"Dtype mismatch: {input_flat.dtype} != {host_array.dtype}, converting...")
+                input_flat = input_flat.astype(host_array.dtype)
+            
+            # Now copy with matching dtypes
             np.copyto(host_array, input_flat)
             
             # Copy input from host to device asynchronously
@@ -359,12 +384,21 @@ class FeatureExtractorTensorRT(object):
                 # For dynamic shapes, get actual output shape
                 output_shape = self.context.get_binding_shape(1)
             
-            # Convert host memory pointer to numpy array
+            # Convert host memory pointer to numpy array with correct dtype
             output_size = np.prod(output_shape)
-            output_array = np.ctypeslib.as_array(
-                self.outputs[0]['host'], 
-                shape=(output_size,)
-            ).astype(self.outputs[0]['dtype'])
+            
+            # Robust output dtype handling
+            try:
+                output_array = np.ctypeslib.as_array(
+                    self.outputs[0]['host'], 
+                    shape=(output_size,)
+                ).view(dtype=self.outputs[0]['dtype'])  # Use view instead of astype for efficiency
+            except ValueError as e:
+                # Fallback for dtype issues
+                log.warning(f"Output dtype view failed, using fallback: {e}")
+                expected_bytes = output_size * np.dtype(self.outputs[0]['dtype']).itemsize
+                output_bytes = np.ctypeslib.as_array(self.outputs[0]['host'], shape=(expected_bytes,)).view(dtype=np.uint8)
+                output_array = output_bytes.view(dtype=self.outputs[0]['dtype']).reshape((output_size,))
             
             output = output_array[:output_size].reshape(output_shape).copy()
             
