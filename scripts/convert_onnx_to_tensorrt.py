@@ -67,7 +67,19 @@ def build_tensorrt_engine(
     
     # Configure builder
     config = builder.create_builder_config()
-    config.max_workspace_size = max_workspace_size
+    
+    # Set workspace/memory pool size (handle both old and new TensorRT versions)
+    try:
+        # TensorRT 8.5+ uses memory pool limits
+        config.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, max_workspace_size)
+        log.info(f"Set memory pool limit: {max_workspace_size} bytes")
+    except AttributeError:
+        try:
+            # TensorRT 8.4 and earlier use max_workspace_size
+            config.max_workspace_size = max_workspace_size
+            log.info(f"Set max workspace size: {max_workspace_size} bytes")
+        except AttributeError:
+            log.warning("Could not set workspace size - using default")
     
     # Enable optimizations
     if fp16_mode and builder.platform_has_fast_fp16:
