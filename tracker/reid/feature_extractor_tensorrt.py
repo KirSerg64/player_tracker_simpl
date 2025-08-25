@@ -8,17 +8,30 @@ import time
 
 try:
     import tensorrt as trt
-    import pycuda.driver as cuda
-    import pycuda.autoinit
+    from cuda import cuda, cudart
     TENSORRT_AVAILABLE = True
 except ImportError:
     TENSORRT_AVAILABLE = False
     trt = None
     cuda = None
+    cudart = None
 
 from tracker.utils.pipeline_base import MessageType, ProcessConfig, PipelineMessage
 
 log = logging.getLogger(__name__)
+
+
+def check_cuda_errors(result):
+    """Check CUDA errors and raise exception if needed."""
+    if isinstance(result, tuple):
+        error, *returns = result
+        if error != cuda.CUresult.CUDA_SUCCESS:
+            _, error_string = cuda.cuGetErrorString(error)
+            raise RuntimeError(f"CUDA error: {error_string}")
+        return returns[0] if len(returns) == 1 else returns
+    elif result != cudart.cudaError_t.cudaSuccess:
+        _, error_string = cudart.cudaGetErrorString(result)
+        raise RuntimeError(f"CUDA runtime error: {error_string}")
 
 
 class TensorRTFeatureExtractor(object):
@@ -28,7 +41,10 @@ class TensorRTFeatureExtractor(object):
         self, cfg, device, batch_size, **kwargs
     ):
         if not TENSORRT_AVAILABLE:
-            raise ImportError("TensorRT not available. Install tensorrt and pycuda packages.")
+            raise ImportError("TensorRT not available. Install tensorrt and cuda-python packages.")
+        
+        # Initialize CUDA
+        check_cuda_errors(cuda.cuInit(0))
         
         # Build model
         self.model_name = cfg.model_name
@@ -42,11 +58,47 @@ class TensorRTFeatureExtractor(object):
         self.batch_size = batch_size
         self.enable_batch_padding = cfg.enable_batch_padding
         
+        # CUDA context and device
+        self.cuda_device = None
+        self.cuda_context = None
+        
         # TensorRT specific attributes
         self.engine = None
         self.context = None
         self.inputs = []
         self.outputs = []
+        self.bindings = []
+        self.stream = None
+        
+        # Performance monitoring
+        self.inference_times = []
+        self.warmup_done = False
+        
+        # Setup CUDA context
+        self._setup_cuda()
+        
+        # Load TensorRT engine
+        self._load_engine()
+        
+        # Scale factor for normalization
+        self.scale = 1.0 / 255.0
+
+    def _setup_cuda(self):
+        """Setup CUDA device and context."""
+        # Get device count
+        device_count = check_cuda_errors(cuda.cuDeviceGetCount())
+        if device_count == 0:
+            raise RuntimeError("No CUDA devices available")
+        
+        # Get device
+        self.cuda_device = check_cuda_errors(cuda.cuDeviceGet(0))  # Use device 0
+        
+        # Create context
+        self.cuda_context = check_cuda_errors(
+            cuda.cuCtxCreate(cuda.CUctx_flags.CU_CTX_SCHED_AUTO, self.cuda_device)
+        )
+        
+        log.info(f"CUDA context created on device 0")
         self.bindings = []
         self.stream = None
         
@@ -84,8 +136,32 @@ class TensorRTFeatureExtractor(object):
         # Create execution context
         self.context = self.engine.create_execution_context()
         
+    def _load_engine(self):
+        """Load TensorRT engine from file."""
+        if not os.path.isfile(self.model_path):
+            raise FileNotFoundError(f"TensorRT engine not found: {self.model_path}")
+        
+        if not self.model_path.endswith('.engine') and not self.model_path.endswith('.plan'):
+            log.warning(f"Model path doesn't appear to be a TensorRT engine: {self.model_path}")
+        
+        # Initialize TensorRT logger
+        trt_logger = trt.Logger(trt.Logger.WARNING)
+        
+        # Load engine
+        with open(self.model_path, 'rb') as f:
+            engine_data = f.read()
+        
+        runtime = trt.Runtime(trt_logger)
+        self.engine = runtime.deserialize_cuda_engine(engine_data)
+        
+        if self.engine is None:
+            raise RuntimeError(f"Failed to load TensorRT engine from {self.model_path}")
+        
+        # Create execution context
+        self.context = self.engine.create_execution_context()
+        
         # Create CUDA stream
-        self.stream = cuda.Stream()
+        self.stream = check_cuda_errors(cuda.cuStreamCreate(cuda.CUstream_flags.CU_STREAM_DEFAULT))
         
         # Allocate memory for inputs and outputs
         self._allocate_memory()
@@ -99,11 +175,11 @@ class TensorRTFeatureExtractor(object):
         self.outputs = []
         self.bindings = []
         
-        for i in range(self.engine.num_bindings):
-            binding_name = self.engine.get_binding_name(i)
-            dtype = trt.nptype(self.engine.get_binding_dtype(i))
-            shape = self.engine.get_binding_shape(i)
-            
+        for i in range(self.engine.num_io_tensors):
+            tensor_name = self.engine.get_tensor_name(i)
+            dtype = trt.nptype(self.engine.get_tensor_dtype(tensor_name))
+            shape = self.engine.get_tensor_shape(tensor_name)
+
             # Handle dynamic shapes
             if -1 in shape:
                 # For dynamic batch size, use the configured batch size
@@ -113,31 +189,40 @@ class TensorRTFeatureExtractor(object):
                 shape = tuple(shape)
             
             size = trt.volume(shape)
+            nbytes = size * np.dtype(dtype).itemsize
             
-            # Allocate memory
-            host_mem = cuda.pagelocked_empty(size, dtype)
-            device_mem = cuda.mem_alloc(host_mem.nbytes)
+            # Allocate pinned host memory
+            host_mem = check_cuda_errors(
+                cudart.cudaMallocHost(nbytes)
+            )
+            
+            # Allocate device memory
+            device_mem = check_cuda_errors(
+                cuda.cuMemAlloc(nbytes)
+            )
             
             self.bindings.append(int(device_mem))
             
             if self.engine.binding_is_input(i):
                 self.inputs.append({
-                    'name': binding_name,
+                    'name': tensor_name,
                     'host': host_mem,
                     'device': device_mem,
                     'shape': shape,
-                    'dtype': dtype
+                    'dtype': dtype,
+                    'nbytes': nbytes
                 })
-                log.info(f"Input {binding_name}: shape={shape}, dtype={dtype}")
+                log.info(f"Input {tensor_name}: shape={shape}, dtype={dtype}")
             else:
                 self.outputs.append({
-                    'name': binding_name,
+                    'name': tensor_name,
                     'host': host_mem,
                     'device': device_mem,
                     'shape': shape,
-                    'dtype': dtype
+                    'dtype': dtype,
+                    'nbytes': nbytes
                 })
-                log.info(f"Output {binding_name}: shape={shape}, dtype={dtype}")
+                log.info(f"Output {tensor_name}: shape={shape}, dtype={dtype}")
 
     def _preprocess(
         self,
@@ -231,26 +316,54 @@ class TensorRTFeatureExtractor(object):
             input_shape = (actual_batch_size,) + input_batch.shape[1:]
             self.context.set_binding_shape(0, input_shape)
         
-        # Copy input to GPU
-        np.copyto(self.inputs[0]['host'], input_batch.ravel())
-        cuda.memcpy_htod_async(self.inputs[0]['device'], self.inputs[0]['host'], self.stream)
+        # Copy input data to pinned host memory
+        input_flat = input_batch.flatten().astype(self.inputs[0]['dtype'])
+        
+        # Convert host memory pointer to numpy array and copy data
+        host_ptr = self.inputs[0]['host']
+        host_array = np.ctypeslib.as_array(host_ptr, shape=input_flat.shape)
+        np.copyto(host_array, input_flat)
+        
+        # Copy input from host to device asynchronously
+        check_cuda_errors(
+            cuda.cuMemcpyHtoDAsync(
+                self.inputs[0]['device'],
+                host_ptr,
+                self.inputs[0]['nbytes'],
+                self.stream
+            )
+        )
         
         # Run inference
-        self.context.execute_async_v2(bindings=self.bindings, stream_handle=self.stream.handle)
+        self.context.execute_async_v2(bindings=self.bindings, stream_handle=self.stream)
         
-        # Copy output from GPU
-        cuda.memcpy_dtoh_async(self.outputs[0]['host'], self.outputs[0]['device'], self.stream)
+        # Copy output from device to host asynchronously
+        check_cuda_errors(
+            cuda.cuMemcpyDtoHAsync(
+                self.outputs[0]['host'],
+                self.outputs[0]['device'],
+                self.outputs[0]['nbytes'],
+                self.stream
+            )
+        )
         
         # Synchronize stream
-        self.stream.synchronize()
+        check_cuda_errors(cuda.cuStreamSynchronize(self.stream))
         
-        # Reshape output
+        # Convert output to numpy array
         output_shape = self.outputs[0]['shape']
         if hasattr(self.context, 'get_binding_shape'):
             # For dynamic shapes, get actual output shape
             output_shape = self.context.get_binding_shape(1)
         
-        output = self.outputs[0]['host'][:np.prod(output_shape)].reshape(output_shape)
+        # Convert host memory pointer to numpy array
+        output_size = np.prod(output_shape)
+        output_array = np.ctypeslib.as_array(
+            self.outputs[0]['host'], 
+            shape=(output_size,)
+        ).astype(self.outputs[0]['dtype'])
+        
+        output = output_array[:output_size].reshape(output_shape).copy()
         
         # Record performance
         inference_time = time.time() - start_time
@@ -319,17 +432,28 @@ class TensorRTFeatureExtractor(object):
     def __del__(self):
         """Cleanup resources."""
         try:
+            # Synchronize stream before cleanup
             if hasattr(self, 'stream') and self.stream:
-                self.stream.synchronize()
+                check_cuda_errors(cuda.cuStreamSynchronize(self.stream))
+                check_cuda_errors(cuda.cuStreamDestroy(self.stream))
             
-            # Free GPU memory
+            # Free device memory
             for inp in getattr(self, 'inputs', []):
-                if 'device' in inp:
-                    inp['device'].free()
+                if 'device' in inp and inp['device']:
+                    check_cuda_errors(cuda.cuMemFree(inp['device']))
+                if 'host' in inp and inp['host']:
+                    check_cuda_errors(cudart.cudaFreeHost(inp['host']))
             
             for out in getattr(self, 'outputs', []):
-                if 'device' in out:
-                    out['device'].free()
+                if 'device' in out and out['device']:
+                    check_cuda_errors(cuda.cuMemFree(out['device']))
+                if 'host' in out and out['host']:
+                    check_cuda_errors(cudart.cudaFreeHost(out['host']))
+            
+            # Destroy CUDA context
+            if hasattr(self, 'cuda_context') and self.cuda_context:
+                check_cuda_errors(cuda.cuCtxDestroy(self.cuda_context))
+                
         except Exception as e:
             log.warning(f"Error during TensorRT cleanup: {e}")
 
