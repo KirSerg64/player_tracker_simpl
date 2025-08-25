@@ -326,18 +326,15 @@ class FeatureExtractorTensorRT(object):
             # Convert host memory pointer to numpy array with correct dtype and copy data
             host_ptr = self.inputs[0]['host']
             
-            # More robust dtype handling
-            try:
-                host_array = np.ctypeslib.as_array(
-                    host_ptr, 
-                    shape=input_flat.shape
-                ).view(dtype=self.inputs[0]['dtype'])  # Ensure correct dtype
-            except ValueError as e:
-                # Fallback: create array with correct dtype and copy manually
-                log.warning(f"Dtype view failed, using fallback: {e}")
-                expected_size = input_flat.size * np.dtype(self.inputs[0]['dtype']).itemsize
-                host_bytes = np.ctypeslib.as_array(host_ptr, shape=(expected_size,)).view(dtype=np.uint8)
-                host_array = host_bytes.view(dtype=self.inputs[0]['dtype']).reshape(input_flat.shape)
+            # Simple and robust dtype handling
+            expected_dtype = self.inputs[0]['dtype']
+            total_elements = input_flat.size
+            
+            # Create array from memory with correct size and dtype
+            host_array = np.ctypeslib.as_array(
+                host_ptr, 
+                shape=(total_elements,)
+            ).view(dtype=expected_dtype).reshape(input_flat.shape)
             
             # Debug: Verify dtypes match
             if self.verbose and hasattr(self, '_dtype_warned') and not self._dtype_warned:
@@ -387,18 +384,11 @@ class FeatureExtractorTensorRT(object):
             # Convert host memory pointer to numpy array with correct dtype
             output_size = np.prod(output_shape)
             
-            # Robust output dtype handling
-            try:
-                output_array = np.ctypeslib.as_array(
-                    self.outputs[0]['host'], 
-                    shape=(output_size,)
-                ).view(dtype=self.outputs[0]['dtype'])  # Use view instead of astype for efficiency
-            except ValueError as e:
-                # Fallback for dtype issues
-                log.warning(f"Output dtype view failed, using fallback: {e}")
-                expected_bytes = output_size * np.dtype(self.outputs[0]['dtype']).itemsize
-                output_bytes = np.ctypeslib.as_array(self.outputs[0]['host'], shape=(expected_bytes,)).view(dtype=np.uint8)
-                output_array = output_bytes.view(dtype=self.outputs[0]['dtype']).reshape((output_size,))
+            # Simple and robust output dtype handling
+            output_array = np.ctypeslib.as_array(
+                self.outputs[0]['host'], 
+                shape=(output_size,)
+            ).view(dtype=self.outputs[0]['dtype'])
             
             output = output_array[:output_size].reshape(output_shape).copy()
             
