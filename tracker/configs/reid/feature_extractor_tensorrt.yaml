@@ -1,0 +1,19 @@
+_target_: tracker.reid.feature_extractor_tensorrt.FeatureExtractorTensorRT
+batch_size: 8
+cfg:
+  model_name: 'osnet_x1_0_tensorrt'
+  # TensorRT engine path - you'll need to convert your ONNX model to TensorRT engine
+  model_path: '${model_dir}/reid/feature_extractor_osnet_x1_0.engine'
+  image_size: [256, 128]
+  pixel_mean: [0.485, 0.456, 0.406]
+  pixel_std: [0.229, 0.224, 0.225]
+  pixel_norm: True
+  device: 'cuda'
+  verbose: False
+  # TensorRT specific settings
+  optimal_batch_size: 8  # Optimal batch size for TensorRT inference
+  enable_batch_padding: True  # Enable padding to optimal batch sizes
+  max_workspace_size: 1073741824  # 1GB workspace for TensorRT optimization
+  fp16_mode: True  # Enable FP16 precision for better performance
+  int8_mode: False  # Enable INT8 quantization (requires calibration dataset)
+  dynamic_shapes: True  # Enable dynamic batch sizes
