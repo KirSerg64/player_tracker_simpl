@@ -132,13 +132,13 @@ def build_tensorrt_engine(
     runtime = trt.Runtime(trt_logger)
     engine = runtime.deserialize_cuda_engine(serialized_engine)
     
-    log.info(f"Engine max batch size: {engine.max_batch_size}")
-    log.info(f"Engine num bindings: {engine.num_bindings}")
+    # log.info(f"Engine max batch size: {engine.max_batch_size}")
+    log.info(f"Engine num bindings: {engine.num_io_tensors}")
     
-    for i in range(engine.num_bindings):
+    for i in range(engine.num_io_tensors):
         tensor_name = engine.get_tensor_name(i)
-        tensor_shape = engine.get_tensor_shape(i)
-        tensor_dtype = engine.get_tensor_dtype(i)
+        tensor_shape = engine.get_tensor_shape(tensor_name)
+        tensor_dtype = engine.get_tensor_dtype(tensor_name)
         is_input = engine.get_tensor_mode(tensor_name) == trt.TensorIOMode.INPUT
         log.info(f"Binding {i}: {tensor_name} - {'Input' if is_input else 'Output'} - Shape: {tensor_shape} - Dtype: {tensor_dtype}")
 
