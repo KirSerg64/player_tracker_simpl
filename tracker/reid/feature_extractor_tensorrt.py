@@ -326,15 +326,17 @@ class FeatureExtractorTensorRT(object):
             # Convert host memory pointer to numpy array with correct dtype and copy data
             host_ptr = self.inputs[0]['host']
             
-            # Simple and robust dtype handling
+            # Direct approach: create array with exact byte size needed
             expected_dtype = self.inputs[0]['dtype']
-            total_elements = input_flat.size
+            total_bytes = input_flat.nbytes
             
-            # Create array from memory with correct size and dtype
-            host_array = np.ctypeslib.as_array(
-                host_ptr, 
-                shape=(total_elements,)
-            ).view(dtype=expected_dtype).reshape(input_flat.shape)
+            # Create byte array from memory, then interpret as correct dtype
+            host_bytes = np.ctypeslib.as_array(host_ptr, shape=(total_bytes,)).view(dtype=np.uint8)
+            host_array = np.frombuffer(host_bytes, dtype=expected_dtype).reshape(input_flat.shape)
+            
+            # Ensure we have a writable copy
+            if not host_array.flags.writeable:
+                host_array = host_array.copy()
             
             # Debug: Verify dtypes match
             if self.verbose and hasattr(self, '_dtype_warned') and not self._dtype_warned:
@@ -384,11 +386,10 @@ class FeatureExtractorTensorRT(object):
             # Convert host memory pointer to numpy array with correct dtype
             output_size = np.prod(output_shape)
             
-            # Simple and robust output dtype handling
-            output_array = np.ctypeslib.as_array(
-                self.outputs[0]['host'], 
-                shape=(output_size,)
-            ).view(dtype=self.outputs[0]['dtype'])
+            # Direct approach: avoid view() issues
+            expected_bytes = output_size * np.dtype(self.outputs[0]['dtype']).itemsize
+            output_bytes = np.ctypeslib.as_array(self.outputs[0]['host'], shape=(expected_bytes,)).view(dtype=np.uint8)
+            output_array = np.frombuffer(output_bytes, dtype=self.outputs[0]['dtype'])
             
             output = output_array[:output_size].reshape(output_shape).copy()
             
