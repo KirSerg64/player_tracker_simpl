@@ -1,4 +1,4 @@
-_target_: tracker.reid.feature_extractor_tensorrt.TensorRTFeatureExtractor
+_target_: tracker.reid.feature_extractor_tensorrt.FeatureExtractorTensorRT
 batch_size: 1  # Reduced from 8 to avoid CUDA context conflicts
 cfg:
   model_name: 'osnet_x1_0_tensorrt'

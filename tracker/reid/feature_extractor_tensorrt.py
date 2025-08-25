@@ -27,11 +27,11 @@ def check_cuda_errors(result):
         error, *returns = result
         if error != cuda.CUresult.CUDA_SUCCESS:
             _, error_string = cuda.cuGetErrorString(error)
-            raise RuntimeError(f"CUDA error: {error_string}")
+            raise RuntimeError(f"CUDA error: {error_string.decode('utf-8') if isinstance(error_string, bytes) else error_string}")
         return returns[0] if len(returns) == 1 else returns
     elif result != cudart.cudaError_t.cudaSuccess:
         _, error_string = cudart.cudaGetErrorString(result)
-        raise RuntimeError(f"CUDA runtime error: {error_string}")
+        raise RuntimeError(f"CUDA runtime error: {error_string.decode('utf-8') if isinstance(error_string, bytes) else error_string}")
 
 
 class FeatureExtractorTensorRT(object):
@@ -97,61 +97,35 @@ class FeatureExtractorTensorRT(object):
         self._created_own_context = False
         try:
             # Check if there's already an active context
-            current_context = check_cuda_errors(cuda.cuCtxGetCurrent())
-            if current_context is not None:
-                self.cuda_context = current_context
-                log.info("Using existing CUDA context")
+            result = cuda.cuCtxGetCurrent()
+            if isinstance(result, tuple) and len(result) == 2:
+                error, current_context = result
+                if error == cuda.CUresult.CUDA_SUCCESS and current_context is not None:
+                    self.cuda_context = current_context
+                    log.info("Using existing CUDA context")
+                else:
+                    # No active context, create new one
+                    self.cuda_context = check_cuda_errors(
+                        cuda.cuCtxCreate(cuda.CUctx_flags.CU_CTX_SCHED_AUTO, self.cuda_device)
+                    )
+                    self._created_own_context = True
+                    log.info("Created new CUDA context on device 0")
             else:
-                # Create new context only if none exists
+                # Fallback: create new context
                 self.cuda_context = check_cuda_errors(
                     cuda.cuCtxCreate(cuda.CUctx_flags.CU_CTX_SCHED_AUTO, self.cuda_device)
                 )
                 self._created_own_context = True
-                log.info("Created new CUDA context on device 0")
-        except:
-            # Fallback: create new context
+                log.info("Created fallback CUDA context on device 0")
+        except Exception as e:
+            # Final fallback: create new context
+            log.warning(f"Context detection failed: {e}, creating new context")
             self.cuda_context = check_cuda_errors(
                 cuda.cuCtxCreate(cuda.CUctx_flags.CU_CTX_SCHED_AUTO, self.cuda_device)
             )
             self._created_own_context = True
-            log.info("Created fallback CUDA context on device 0")
-        self.bindings = []
-        self.stream = None
-        
-        # Performance monitoring
-        self.inference_times = []
-        self.warmup_done = False
-        
-        # Load TensorRT engine
-        self._load_engine()
-        
-        # Scale factor for normalization
-        self.scale = 1.0 / 255.0
+            log.info("Created emergency fallback CUDA context on device 0")
 
-    def _load_engine(self):
-        """Load TensorRT engine from file."""
-        if not os.path.isfile(self.model_path):
-            raise FileNotFoundError(f"TensorRT engine not found: {self.model_path}")
-        
-        if not self.model_path.endswith('.engine') and not self.model_path.endswith('.plan'):
-            log.warning(f"Model path doesn't appear to be a TensorRT engine: {self.model_path}")
-        
-        # Initialize TensorRT logger
-        trt_logger = trt.Logger(trt.Logger.WARNING)
-        
-        # Load engine
-        with open(self.model_path, 'rb') as f:
-            engine_data = f.read()
-        
-        runtime = trt.Runtime(trt_logger)
-        self.engine = runtime.deserialize_cuda_engine(engine_data)
-        
-        if self.engine is None:
-            raise RuntimeError(f"Failed to load TensorRT engine from {self.model_path}")
-        
-        # Create execution context
-        self.context = self.engine.create_execution_context()
-        
     def _load_engine(self):
         """Load TensorRT engine from file."""
         if not os.path.isfile(self.model_path):
@@ -324,8 +298,18 @@ class FeatureExtractorTensorRT(object):
         """
         start_time = time.time()
         
+        # Validate CUDA context before using it
+        if self.cuda_context is None:
+            raise RuntimeError("CUDA context is None - initialization failed")
+        
         # Push our CUDA context to ensure we're using the right one
-        check_cuda_errors(cuda.cuCtxPushCurrent(self.cuda_context))
+        try:
+            check_cuda_errors(cuda.cuCtxPushCurrent(self.cuda_context))
+        except Exception as e:
+            log.error(f"Failed to push CUDA context: {e}")
+            # Try to recreate context as emergency fallback
+            self._setup_cuda()
+            check_cuda_errors(cuda.cuCtxPushCurrent(self.cuda_context))
         
         try:
             # Handle dynamic batch size
@@ -399,8 +383,11 @@ class FeatureExtractorTensorRT(object):
             return output
             
         finally:
-            # Always pop the context when done
-            check_cuda_errors(cuda.cuCtxPopCurrent())
+            # Always pop the context when done - with error handling
+            try:
+                check_cuda_errors(cuda.cuCtxPopCurrent())
+            except Exception as e:
+                log.warning(f"Failed to pop CUDA context: {e}")
 
     def process(self, input: PipelineMessage) -> PipelineMessage:
         """
