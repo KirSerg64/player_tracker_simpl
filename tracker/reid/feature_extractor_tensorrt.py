@@ -93,12 +93,28 @@ class FeatureExtractorTensorRT(object):
         # Get device
         self.cuda_device = check_cuda_errors(cuda.cuDeviceGet(0))  # Use device 0
         
-        # Create context
-        self.cuda_context = check_cuda_errors(
-            cuda.cuCtxCreate(cuda.CUctx_flags.CU_CTX_SCHED_AUTO, self.cuda_device)
-        )
-        
-        log.info(f"CUDA context created on device 0")
+        # Try to get existing CUDA context first
+        self._created_own_context = False
+        try:
+            # Check if there's already an active context
+            current_context = check_cuda_errors(cuda.cuCtxGetCurrent())
+            if current_context is not None:
+                self.cuda_context = current_context
+                log.info("Using existing CUDA context")
+            else:
+                # Create new context only if none exists
+                self.cuda_context = check_cuda_errors(
+                    cuda.cuCtxCreate(cuda.CUctx_flags.CU_CTX_SCHED_AUTO, self.cuda_device)
+                )
+                self._created_own_context = True
+                log.info("Created new CUDA context on device 0")
+        except:
+            # Fallback: create new context
+            self.cuda_context = check_cuda_errors(
+                cuda.cuCtxCreate(cuda.CUctx_flags.CU_CTX_SCHED_AUTO, self.cuda_device)
+            )
+            self._created_own_context = True
+            log.info("Created fallback CUDA context on device 0")
         self.bindings = []
         self.stream = None
         
@@ -308,75 +324,83 @@ class FeatureExtractorTensorRT(object):
         """
         start_time = time.time()
         
-        # Handle dynamic batch size
-        if hasattr(self.context, 'set_binding_shape'):
-            # For engines with dynamic shapes
-            actual_batch_size = input_batch.shape[0]
-            input_shape = (actual_batch_size,) + input_batch.shape[1:]
-            self.context.set_binding_shape(0, input_shape)
+        # Push our CUDA context to ensure we're using the right one
+        check_cuda_errors(cuda.cuCtxPushCurrent(self.cuda_context))
         
-        # Copy input data to pinned host memory
-        input_flat = input_batch.flatten().astype(self.inputs[0]['dtype'])
-        
-        # Convert host memory pointer to numpy array and copy data
-        host_ptr = self.inputs[0]['host']
-        host_array = np.ctypeslib.as_array(host_ptr, shape=input_flat.shape)
-        np.copyto(host_array, input_flat)
-        
-        # Copy input from host to device asynchronously
-        check_cuda_errors(
-            cuda.cuMemcpyHtoDAsync(
-                self.inputs[0]['device'],
-                host_ptr,
-                self.inputs[0]['nbytes'],
-                self.stream
+        try:
+            # Handle dynamic batch size
+            if hasattr(self.context, 'set_binding_shape'):
+                # For engines with dynamic shapes
+                actual_batch_size = input_batch.shape[0]
+                input_shape = (actual_batch_size,) + input_batch.shape[1:]
+                self.context.set_binding_shape(0, input_shape)
+            
+            # Copy input data to pinned host memory
+            input_flat = input_batch.flatten().astype(self.inputs[0]['dtype'])
+            
+            # Convert host memory pointer to numpy array and copy data
+            host_ptr = self.inputs[0]['host']
+            host_array = np.ctypeslib.as_array(host_ptr, shape=input_flat.shape)
+            np.copyto(host_array, input_flat)
+            
+            # Copy input from host to device asynchronously
+            check_cuda_errors(
+                cuda.cuMemcpyHtoDAsync(
+                    self.inputs[0]['device'],
+                    host_ptr,
+                    self.inputs[0]['nbytes'],
+                    self.stream
+                )
             )
-        )
-        
-        # Run inference
-        self.context.execute_async_v2(bindings=self.bindings, stream_handle=self.stream)
-        
-        # Copy output from device to host asynchronously
-        check_cuda_errors(
-            cuda.cuMemcpyDtoHAsync(
-                self.outputs[0]['host'],
-                self.outputs[0]['device'],
-                self.outputs[0]['nbytes'],
-                self.stream
+            
+            # Run inference
+            self.context.execute_async_v2(bindings=self.bindings, stream_handle=self.stream)
+            
+            # Copy output from device to host asynchronously
+            check_cuda_errors(
+                cuda.cuMemcpyDtoHAsync(
+                    self.outputs[0]['host'],
+                    self.outputs[0]['device'],
+                    self.outputs[0]['nbytes'],
+                    self.stream
+                )
             )
-        )
-        
-        # Synchronize stream
-        check_cuda_errors(cuda.cuStreamSynchronize(self.stream))
-        
-        # Convert output to numpy array
-        output_shape = self.outputs[0]['shape']
-        if hasattr(self.context, 'get_binding_shape'):
-            # For dynamic shapes, get actual output shape
-            output_shape = self.context.get_binding_shape(1)
-        
-        # Convert host memory pointer to numpy array
-        output_size = np.prod(output_shape)
-        output_array = np.ctypeslib.as_array(
-            self.outputs[0]['host'], 
-            shape=(output_size,)
-        ).astype(self.outputs[0]['dtype'])
-        
-        output = output_array[:output_size].reshape(output_shape).copy()
-        
-        # Record performance
-        inference_time = time.time() - start_time
-        self.inference_times.append(inference_time)
-        
-        # Keep only last 100 measurements for rolling average
-        if len(self.inference_times) > 100:
-            self.inference_times.pop(0)
-        
-        if self.verbose and len(self.inference_times) % 50 == 0:
-            avg_time = np.mean(self.inference_times)
-            log.info(f"TensorRT inference avg time: {avg_time*1000:.2f}ms")
-        
-        return output
+            
+            # Synchronize stream
+            check_cuda_errors(cuda.cuStreamSynchronize(self.stream))
+            
+            # Convert output to numpy array
+            output_shape = self.outputs[0]['shape']
+            if hasattr(self.context, 'get_binding_shape'):
+                # For dynamic shapes, get actual output shape
+                output_shape = self.context.get_binding_shape(1)
+            
+            # Convert host memory pointer to numpy array
+            output_size = np.prod(output_shape)
+            output_array = np.ctypeslib.as_array(
+                self.outputs[0]['host'], 
+                shape=(output_size,)
+            ).astype(self.outputs[0]['dtype'])
+            
+            output = output_array[:output_size].reshape(output_shape).copy()
+            
+            # Record performance
+            inference_time = time.time() - start_time
+            self.inference_times.append(inference_time)
+            
+            # Keep only last 100 measurements for rolling average
+            if len(self.inference_times) > 100:
+                self.inference_times.pop(0)
+            
+            if self.verbose and len(self.inference_times) % 50 == 0:
+                avg_time = np.mean(self.inference_times)
+                log.info(f"TensorRT inference avg time: {avg_time*1000:.2f}ms")
+            
+            return output
+            
+        finally:
+            # Always pop the context when done
+            check_cuda_errors(cuda.cuCtxPopCurrent())
 
     def process(self, input: PipelineMessage) -> PipelineMessage:
         """
@@ -449,9 +473,11 @@ class FeatureExtractorTensorRT(object):
                 if 'host' in out and out['host']:
                     check_cuda_errors(cudart.cudaFreeHost(out['host']))
             
-            # Destroy CUDA context
-            if hasattr(self, 'cuda_context') and self.cuda_context:
-                check_cuda_errors(cuda.cuCtxDestroy(self.cuda_context))
+            # Only destroy CUDA context if we created it ourselves
+            # Don't destroy shared contexts as they might be used by other components
+            if hasattr(self, 'cuda_context') and self.cuda_context and hasattr(self, '_created_own_context'):
+                if self._created_own_context:
+                    check_cuda_errors(cuda.cuCtxDestroy(self.cuda_context))
                 
         except Exception as e:
             log.warning(f"Error during TensorRT cleanup: {e}")

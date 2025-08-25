@@ -1,5 +1,5 @@
-_target_: tracker.reid.feature_extractor_tensorrt.FeatureExtractorTensorRT
-batch_size: 8
+_target_: tracker.reid.feature_extractor_tensorrt.TensorRTFeatureExtractor
+batch_size: 1  # Reduced from 8 to avoid CUDA context conflicts
 cfg:
   model_name: 'osnet_x1_0_tensorrt'
   # TensorRT engine path - you'll need to convert your ONNX model to TensorRT engine
@@ -9,11 +9,11 @@ cfg:
   pixel_std: [0.229, 0.224, 0.225]
   pixel_norm: True
   device: 'cuda'
-  verbose: False
-  # TensorRT specific settings
-  optimal_batch_size: 8  # Optimal batch size for TensorRT inference
-  enable_batch_padding: True  # Enable padding to optimal batch sizes
-  max_workspace_size: 1073741824  # 1GB workspace for TensorRT optimization
-  fp16_mode: True  # Enable FP16 precision for better performance
-  int8_mode: False  # Enable INT8 quantization (requires calibration dataset)
-  dynamic_shapes: True  # Enable dynamic batch sizes
+  verbose: True  # Enable verbose logging for debugging
+  # TensorRT specific settings - conservative for stability
+  optimal_batch_size: 1  # Conservative batch size
+  enable_batch_padding: False  # Disable padding to reduce complexity
+  max_workspace_size: 536870912  # 512MB workspace (reduced from 1GB)
+  fp16_mode: False  # Disable FP16 for better compatibility
+  int8_mode: False  # Keep INT8 disabled
+  dynamic_shapes: False  # Disable dynamic shapes for better stability
