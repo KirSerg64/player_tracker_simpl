@@ -147,6 +147,8 @@ class FeatureExtractorTensorRT(object):
                 is_input = True
             dtype = self.engine.get_tensor_dtype(name)
             shape = self.engine.get_tensor_shape(name)
+            original_shape = list(shape)  # Store original shape with -1 for dynamic
+            
             if is_input:
                 if shape[0] == -1: # check for dynamic batch size
                     shape[0] = self.batch_size
@@ -164,6 +166,7 @@ class FeatureExtractorTensorRT(object):
                 "name": name,
                 "dtype": np.dtype(trt.nptype(dtype)),
                 "shape": list(shape),
+                "original_shape": original_shape,  # Keep original shape for dynamic checking
                 "allocation": allocation,
                 "size": size,
             }
@@ -248,7 +251,7 @@ class FeatureExtractorTensorRT(object):
         """
         specs = []
         for o in self.outputs:
-            specs.append((o["shape"], o["dtype"]))
+            specs.append((o["original_shape"], o["dtype"]))
         return specs
 
     def _warmup(self):
@@ -270,10 +273,20 @@ class FeatureExtractorTensorRT(object):
 
     def _inference(self, batch: np.ndarray, scales=None, nms_threshold=None) -> np.ndarray:
 
+        # Set input shape for dynamic batch size
+        actual_batch_size = batch.shape[0]
+        self.context.set_input_shape(self.inputs[0]["name"], batch.shape)
+
         # Prepare the output data.
         outputs = []
         for shape, dtype in self.output_spec():
-            outputs.append(np.zeros(shape, dtype))
+            # Update output shape for dynamic batch
+            if shape[0] == -1:
+                actual_shape = list(shape)
+                actual_shape[0] = actual_batch_size
+                outputs.append(np.zeros(actual_shape, dtype))
+            else:
+                outputs.append(np.zeros(shape, dtype))
 
         # Process I/O and execute the network.
         common.memcpy_host_to_device(
