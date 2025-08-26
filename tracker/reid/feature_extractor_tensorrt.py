@@ -150,6 +150,11 @@ class FeatureExtractorTensorRT(object):
             if is_input:
                 if shape[0] == -1: # check for dynamic batch size
                     shape[0] = self.batch_size
+                else:
+                    self.batch_size = max(self.batch_size, shape[0])
+            else: 
+                if shape[0] == -1: # check for dynamic batch size
+                    shape[0] = self.batch_size
             size = np.dtype(trt.nptype(dtype)).itemsize
             for s in shape:
                 size *= s
