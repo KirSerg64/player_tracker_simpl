@@ -8,7 +8,7 @@ import time
 import tensorrt as trt
 from cuda.bindings import runtime as cudart
 import cuda
-import utils.common as common
+import tracker.reid.utils.common as common
 
 from tracker.utils.pipeline_base import MessageType, ProcessConfig, PipelineMessage
 
