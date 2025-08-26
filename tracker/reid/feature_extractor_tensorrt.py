@@ -5,16 +5,10 @@ import cv2
 import os
 import logging
 import time
-
-try:
-    import tensorrt as trt
-    from cuda import cuda, cudart
-    TENSORRT_AVAILABLE = True
-except ImportError:
-    TENSORRT_AVAILABLE = False
-    trt = None
-    cuda = None
-    cudart = None
+import tensorrt as trt
+from cuda.bindings import runtime as cudart
+import cuda
+import common
 
 from tracker.utils.pipeline_base import MessageType, ProcessConfig, PipelineMessage
 
@@ -40,15 +34,9 @@ class FeatureExtractorTensorRT(object):
     def __init__(
         self, cfg, device, batch_size, **kwargs
     ):
-        if not TENSORRT_AVAILABLE:
-            raise ImportError("TensorRT not available. Install tensorrt and cuda-python packages.")
-        
-        # Initialize CUDA
-        check_cuda_errors(cuda.cuInit(0))
-        
         # Build model
         self.model_name = cfg.model_name
-        self.model_path = cfg.model_path
+        self.engine_path = cfg.model_path
         self.image_size = cfg.image_size
         self.pixel_norm = cfg.pixel_norm
         self.pixel_mean = np.array(cfg.pixel_mean, dtype=np.float32).reshape(1, 1, 3)
@@ -76,11 +64,11 @@ class FeatureExtractorTensorRT(object):
         self._dtype_warned = False  # Debug flag for dtype warnings
         
         # Setup CUDA context
-        self._setup_cuda()
+        # self._setup_cuda()
         
         # Load TensorRT engine
         self._load_engine()
-        
+        self._allocate_memory()
         # Scale factor for normalization
         self.scale = 1.0 / 255.0
 
@@ -132,87 +120,57 @@ class FeatureExtractorTensorRT(object):
         if not os.path.isfile(self.model_path):
             raise FileNotFoundError(f"TensorRT engine not found: {self.model_path}")
         
-        if not self.model_path.endswith('.engine') and not self.model_path.endswith('.plan'):
-            log.warning(f"Model path doesn't appear to be a TensorRT engine: {self.model_path}")
-        
-        # Initialize TensorRT logger
-        trt_logger = trt.Logger(trt.Logger.WARNING)
-        
-        # Load engine
-        with open(self.model_path, 'rb') as f:
-            engine_data = f.read()
-        
-        runtime = trt.Runtime(trt_logger)
-        self.engine = runtime.deserialize_cuda_engine(engine_data)
-        
-        if self.engine is None:
-            raise RuntimeError(f"Failed to load TensorRT engine from {self.model_path}")
-        
-        # Create execution context
+        if not self.engine_path.endswith('.engine') and not self.engine_path.endswith('.plan'):
+            log.warning(f"Model path doesn't appear to be a TensorRT engine: {self.engine_path}")
+
+        # Load TRT engine
+        self.logger = trt.Logger(trt.Logger.ERROR)
+        trt.init_libnvinfer_plugins(self.logger, namespace="")
+        with open(self.engine_path, "rb") as f, trt.Runtime(self.logger) as runtime:
+            assert runtime
+            self.engine = runtime.deserialize_cuda_engine(f.read())
+        assert self.engine, "Failed to load TensorRT engine"
         self.context = self.engine.create_execution_context()
-        
-        # Create CUDA stream
-        self.stream = check_cuda_errors(cuda.cuStreamCreate(cuda.CUstream_flags.CU_STREAM_DEFAULT))
-        
-        # Allocate memory for inputs and outputs
-        self._allocate_memory()
-        
-        log.info(f"TensorRT engine loaded successfully: {self.model_path}")
+        assert self.context, "Failed to create execution context"
+        log.info(f"TensorRT engine loaded successfully: {self.engine_path}")
 
     def _allocate_memory(self):
         """Allocate GPU and CPU memory for inputs and outputs."""
         self.inputs = []
         self.outputs = []
-        self.bindings = []
+        self.allocations = []
         
         for i in range(self.engine.num_io_tensors):
-            tensor_name = self.engine.get_tensor_name(i)
-            dtype = trt.nptype(self.engine.get_tensor_dtype(tensor_name))
-            shape = self.engine.get_tensor_shape(tensor_name)
-
-            # Handle dynamic shapes
-            if -1 in shape:
-                # For dynamic batch size, use the configured batch size
-                shape = list(shape)
-                batch_idx = shape.index(-1)
-                shape[batch_idx] = self.batch_size
-                shape = tuple(shape)
-            
-            size = trt.volume(shape)
-            nbytes = size * np.dtype(dtype).itemsize
-            
-            # Allocate pinned host memory
-            host_mem = check_cuda_errors(
-                cudart.cudaMallocHost(nbytes)
-            )
-            
-            # Allocate device memory
-            device_mem = check_cuda_errors(
-                cuda.cuMemAlloc(nbytes)
-            )
-            
-            self.bindings.append(int(device_mem))
-            
-            if self.engine.get_tensor_mode(tensor_name) == trt.TensorIOMode.INPUT:
-                self.inputs.append({
-                    'name': tensor_name,
-                    'host': host_mem,
-                    'device': device_mem,
-                    'shape': shape,
-                    'dtype': dtype,
-                    'nbytes': nbytes
-                })
-                log.info(f"Input {tensor_name}: shape={shape}, dtype={dtype}")
+            name = self.engine.get_tensor_name(i)
+            is_input = False
+            if self.engine.get_tensor_mode(name) == trt.TensorIOMode.INPUT:
+                is_input = True
+            dtype = self.engine.get_tensor_dtype(name)
+            shape = self.engine.get_tensor_shape(name)
+            if is_input:
+                self.batch_size = shape[0]
+            size = np.dtype(trt.nptype(dtype)).itemsize
+            for s in shape:
+                size *= s
+            allocation = common.cuda_call(cudart.cudaMalloc(size))
+            binding = {
+                "index": i,
+                "name": name,
+                "dtype": np.dtype(trt.nptype(dtype)),
+                "shape": list(shape),
+                "allocation": allocation,
+                "size": size,
+            }
+            self.allocations.append(allocation)
+            if is_input:
+                self.inputs.append(binding)
             else:
-                self.outputs.append({
-                    'name': tensor_name,
-                    'host': host_mem,
-                    'device': device_mem,
-                    'shape': shape,
-                    'dtype': dtype,
-                    'nbytes': nbytes
-                })
-                log.info(f"Output {tensor_name}: shape={shape}, dtype={dtype}")
+                self.outputs.append(binding)
+
+        assert self.batch_size > 0, "Failed to determine batch size"
+        assert len(self.inputs) > 0, "Failed to create input bindings"
+        assert len(self.outputs) > 0, "Failed to create output bindings"
+        assert len(self.allocations) > 0, "Failed to allocate memory"
 
     def _preprocess(
         self,
@@ -270,6 +228,23 @@ class FeatureExtractorTensorRT(object):
            
         return batch, n_crops
 
+    def input_spec(self):
+        """
+        Get the specs for the input tensor of the network. Useful to prepare memory allocations.
+        :return: Two items, the shape of the input tensor and its (numpy) datatype.
+        """
+        return self.inputs[0]["shape"], self.inputs[0]["dtype"]
+
+    def output_spec(self):
+        """
+        Get the specs for the output tensors of the network. Useful to prepare memory allocations.
+        :return: A list with two items per element, the shape and (numpy) datatype of each output tensor.
+        """
+        specs = []
+        for o in self.outputs:
+            specs.append((o["shape"], o["dtype"]))
+        return specs
+
     def _warmup(self):
         """Perform warmup inference to optimize GPU kernels."""
         if self.warmup_done:
@@ -287,132 +262,27 @@ class FeatureExtractorTensorRT(object):
         self.warmup_done = True
         log.info("TensorRT warmup completed")
 
-    def _inference(self, input_batch: np.ndarray) -> np.ndarray:
-        """
-        Run TensorRT inference.
-        
-        Args:
-            input_batch: Input batch (N, C, H, W)
-            
-        Returns:
-            Output features
-        """
-        start_time = time.time()
-        
-        # Validate CUDA context before using it
-        if self.cuda_context is None:
-            raise RuntimeError("CUDA context is None - initialization failed")
-        
-        # Push our CUDA context to ensure we're using the right one
-        try:
-            check_cuda_errors(cuda.cuCtxPushCurrent(self.cuda_context))
-        except Exception as e:
-            log.error(f"Failed to push CUDA context: {e}")
-            # Try to recreate context as emergency fallback
-            self._setup_cuda()
-            check_cuda_errors(cuda.cuCtxPushCurrent(self.cuda_context))
-        
-        try:
-            # Handle dynamic batch size
-            if hasattr(self.context, 'set_binding_shape'):
-                # For engines with dynamic shapes
-                actual_batch_size = input_batch.shape[0]
-                input_shape = (actual_batch_size,) + input_batch.shape[1:]
-                self.context.set_binding_shape(0, input_shape)
-            
-            # Copy input data to pinned host memory
-            input_flat = input_batch.flatten().astype(self.inputs[0]['dtype'])
-            
-            # Convert host memory pointer to numpy array with correct dtype and copy data
-            host_ptr = self.inputs[0]['host']
-            
-            # Direct approach: create array with exact byte size needed
-            expected_dtype = self.inputs[0]['dtype']
-            total_bytes = input_flat.nbytes
-            
-            # Create byte array from memory, then interpret as correct dtype
-            host_bytes = np.ctypeslib.as_array(host_ptr, shape=(total_bytes,)).view(dtype=np.uint8)
-            host_array = np.frombuffer(host_bytes, dtype=expected_dtype).reshape(input_flat.shape)
-            
-            # Ensure we have a writable copy
-            if not host_array.flags.writeable:
-                host_array = host_array.copy()
-            
-            # Debug: Verify dtypes match
-            if self.verbose and hasattr(self, '_dtype_warned') and not self._dtype_warned:
-                log.info(f"Input dtypes - input_flat: {input_flat.dtype}, host_array: {host_array.dtype}, expected: {self.inputs[0]['dtype']}")
-                self._dtype_warned = True
-            
-            # Verify dtypes match before copying
-            if input_flat.dtype != host_array.dtype:
-                log.warning(f"Dtype mismatch: {input_flat.dtype} != {host_array.dtype}, converting...")
-                input_flat = input_flat.astype(host_array.dtype)
-            
-            # Now copy with matching dtypes
-            np.copyto(host_array, input_flat)
-            
-            # Copy input from host to device asynchronously
-            check_cuda_errors(
-                cuda.cuMemcpyHtoDAsync(
-                    self.inputs[0]['device'],
-                    host_ptr,
-                    self.inputs[0]['nbytes'],
-                    self.stream
-                )
-            )
-            
-            # Run inference
-            self.context.execute_async_v2(bindings=self.bindings, stream_handle=self.stream)
-            
-            # Copy output from device to host asynchronously
-            check_cuda_errors(
-                cuda.cuMemcpyDtoHAsync(
-                    self.outputs[0]['host'],
-                    self.outputs[0]['device'],
-                    self.outputs[0]['nbytes'],
-                    self.stream
-                )
-            )
-            
-            # Synchronize stream
-            check_cuda_errors(cuda.cuStreamSynchronize(self.stream))
-            
-            # Convert output to numpy array
-            output_shape = self.outputs[0]['shape']
-            if hasattr(self.context, 'get_binding_shape'):
-                # For dynamic shapes, get actual output shape
-                output_shape = self.context.get_binding_shape(1)
-            
-            # Convert host memory pointer to numpy array with correct dtype
-            output_size = np.prod(output_shape)
-            
-            # Direct approach: avoid view() issues
-            expected_bytes = output_size * np.dtype(self.outputs[0]['dtype']).itemsize
-            output_bytes = np.ctypeslib.as_array(self.outputs[0]['host'], shape=(expected_bytes,)).view(dtype=np.uint8)
-            output_array = np.frombuffer(output_bytes, dtype=self.outputs[0]['dtype'])
-            
-            output = output_array[:output_size].reshape(output_shape).copy()
-            
-            # Record performance
-            inference_time = time.time() - start_time
-            self.inference_times.append(inference_time)
-            
-            # Keep only last 100 measurements for rolling average
-            if len(self.inference_times) > 100:
-                self.inference_times.pop(0)
-            
-            if self.verbose and len(self.inference_times) % 50 == 0:
-                avg_time = np.mean(self.inference_times)
-                log.info(f"TensorRT inference avg time: {avg_time*1000:.2f}ms")
-            
-            return output
-            
-        finally:
-            # Always pop the context when done - with error handling
-            try:
-                check_cuda_errors(cuda.cuCtxPopCurrent())
-            except Exception as e:
-                log.warning(f"Failed to pop CUDA context: {e}")
+    def _inference(self, batch: np.ndarray, scales=None, nms_threshold=None) -> np.ndarray:
+
+        # Prepare the output data.
+        outputs = []
+        for shape, dtype in self.output_spec():
+            outputs.append(np.zeros(shape, dtype))
+
+        # Process I/O and execute the network.
+        common.memcpy_host_to_device(
+            self.inputs[0]["allocation"], np.ascontiguousarray(batch)
+        )
+
+        self.context.execute_v2(self.allocations)
+
+        for o in range(len(outputs)):
+            common.memcpy_device_to_host(outputs[o], self.outputs[o]["allocation"])
+
+        # Process the results.
+        features = outputs[0]
+
+        return features
 
     def process(self, input: PipelineMessage) -> PipelineMessage:
         """
@@ -425,8 +295,8 @@ class FeatureExtractorTensorRT(object):
             Pipeline message with extracted features
         """
         # Warmup on first inference
-        if not self.warmup_done:
-            self._warmup()
+        # if not self.warmup_done:
+        #     self._warmup()
         
         # Preprocess input
         input_batch, n_valid = self._preprocess(input.data['frame'], input.data['detections'])
@@ -450,19 +320,6 @@ class FeatureExtractorTensorRT(object):
             timestamp=input.timestamp,
         )
         return out_features
-
-    def get_performance_stats(self) -> dict:
-        """Get performance statistics."""
-        if not self.inference_times:
-            return {}
-        
-        return {
-            'avg_inference_time_ms': np.mean(self.inference_times) * 1000,
-            'min_inference_time_ms': np.min(self.inference_times) * 1000,
-            'max_inference_time_ms': np.max(self.inference_times) * 1000,
-            'total_inferences': len(self.inference_times),
-            'throughput_fps': 1.0 / np.mean(self.inference_times) if self.inference_times else 0
-        }
 
     def __del__(self):
         """Cleanup resources."""
