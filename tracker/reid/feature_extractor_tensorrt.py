@@ -148,7 +148,8 @@ class FeatureExtractorTensorRT(object):
             dtype = self.engine.get_tensor_dtype(name)
             shape = self.engine.get_tensor_shape(name)
             if is_input:
-                self.batch_size = shape[0]
+                if shape[0] == -1: # check for dynamic batch size
+                    shape[0] = self.batch_size
             size = np.dtype(trt.nptype(dtype)).itemsize
             for s in shape:
                 size *= s
