@@ -117,9 +117,9 @@ class FeatureExtractorTensorRT(object):
 
     def _load_engine(self):
         """Load TensorRT engine from file."""
-        if not os.path.isfile(self.model_path):
-            raise FileNotFoundError(f"TensorRT engine not found: {self.model_path}")
-        
+        if not os.path.isfile(self.engine_path):
+            raise FileNotFoundError(f"TensorRT engine not found: {self.engine_path}")
+
         if not self.engine_path.endswith('.engine') and not self.engine_path.endswith('.plan'):
             log.warning(f"Model path doesn't appear to be a TensorRT engine: {self.engine_path}")
 
