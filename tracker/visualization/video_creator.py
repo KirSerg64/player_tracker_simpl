@@ -232,11 +232,10 @@ def create_overlay_video(video_path: str, real_time_tracklets: list, final_track
             break
         
         # Draw real-time tracklets first (if available) with ID on top
-        if frame_id < len(real_time_tracklets):
-            visualizer.draw_detection_with_position(frame, real_time_tracklets[frame_id], text_position='top', color=(0, 255, 0))
+        visualizer.draw_tracklets_with_position(frame, real_time_tracklets, frame_id, text_position='top', color=(0, 255, 0))
         
         # Draw final tracklets with ID on bottom
-        visualizer.draw_final_tracklets_with_position(frame, final_tracklets, frame_id, text_position='bottom', color=(0, 255, 255))
+        visualizer.draw_tracklets_with_position(frame, final_tracklets, frame_id, text_position='bottom', color=(0, 255, 255))
         
         # Add legend
         cv2.putText(frame, "Green (top): Real-time | Yellow (bottom): Final", (10, 30), 

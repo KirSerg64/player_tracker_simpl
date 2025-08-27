@@ -129,61 +129,7 @@ class EllipseDetection(DetectionVisualizer):
                         cv2.line(image, trajectory_points[i-1], trajectory_points[i], 
                                 trajectory_color, thickness, cv2.LINE_AA)
 
-    def draw_detection_with_position(self, image, detection_pred, text_position='center', color=(0, 255, 0)):
-        """
-        Draw detections with configurable text position and color.
-        
-        Args:
-            image: Frame image to draw on
-            detection_pred: Detection predictions
-            text_position: Position of text ('top', 'bottom', 'center')
-            color: Color tuple for ellipse and background
-        """
-        for detection in detection_pred:
-            x1, y1, x2, y2 = detection[:4].tolist()
-            track_id = int(detection[4])
-            center = (int((x1 + x2) / 2), int(y2))
-            width = x2 - x1
-            
-            # Draw ellipse
-            cv2.ellipse(
-                image,
-                center=center,
-                axes=(int(width), int(0.35 * width)),
-                angle=0.0,
-                startAngle=-45.0,
-                endAngle=235.0,
-                color=color,
-                thickness=2,
-                lineType=cv2.LINE_AA,
-            )
-            
-            # Determine text position
-            if text_position == 'top':
-                text_center = (int((x1 + x2) / 2), int(y1 - 10))
-                alignV = "b"
-            elif text_position == 'bottom':
-                text_center = (int((x1 + x2) / 2), int(y2 + 15))
-                alignV = "t"
-            else:  # center
-                text_center = center
-                alignV = "c"
-            
-            draw_text(
-                image,
-                f"{track_id}",
-                text_center,
-                fontFace=1,
-                fontScale=0.7,
-                thickness=1,
-                alignH="c",
-                alignV=alignV,
-                color_bg=color,
-                color_txt=self.color_text,
-                alpha_bg=1,
-            )
-
-    def draw_final_tracklets_with_position(self, image, final_tracklets: Dict, frame_id: int, text_position='center', color=(0, 255, 255)):
+    def draw_tracklets_with_position(self, image, final_tracklets: Dict, frame_id: int, text_position='center', color=(0, 255, 255)):
         """
         Draw final refined tracklets with configurable text position and color.
         

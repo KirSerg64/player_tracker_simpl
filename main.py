@@ -241,6 +241,7 @@ def main(cfg):
             create_overlay_video(
                 video_path=cfg.video_path,
                 final_tracklets=final_tracklets,
+                real_time_tracklets=real_time_tracklets,
                 output_path=refined_video_path,
             )
         else:
