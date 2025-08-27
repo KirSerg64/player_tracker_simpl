@@ -1,9 +1,10 @@
-_target_: tracker.reid.feature_extractor_tensorrt.FeatureExtractorTensorRT
+git_target_: tracker.reid.feature_extractor_tensorrt.FeatureExtractorTensorRT
 batch_size: 1  # Reduced from 8 to avoid CUDA context conflicts
 cfg:
   model_name: 'osnet_x1_0_tensorrt'
   # TensorRT engine path - you'll need to convert your ONNX model to TensorRT engine
   model_path: '${model_dir}/reid/feature_extractor_osnet_x1_0_L4.engine'
+  # model_path: '${model_dir}/reid/feature_extractor_osnet_x1_0_A100.engine'
   image_size: [256, 128]
   pixel_mean: [0.485, 0.456, 0.406]
   pixel_std: [0.229, 0.224, 0.225]

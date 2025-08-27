@@ -15,17 +15,37 @@ from tracker.utils.pipeline_base import MessageType, ProcessConfig, PipelineMess
 log = logging.getLogger(__name__)
 
 
-def check_cuda_errors(result):
-    """Check CUDA errors and raise exception if needed."""
-    if isinstance(result, tuple):
-        error, *returns = result
-        if error != cuda.CUresult.CUDA_SUCCESS:
-            _, error_string = cuda.cuGetErrorString(error)
-            raise RuntimeError(f"CUDA error: {error_string.decode('utf-8') if isinstance(error_string, bytes) else error_string}")
-        return returns[0] if len(returns) == 1 else returns
-    elif result != cudart.cudaError_t.cudaSuccess:
-        _, error_string = cudart.cudaGetErrorString(result)
-        raise RuntimeError(f"CUDA runtime error: {error_string.decode('utf-8') if isinstance(error_string, bytes) else error_string}")
+# def check_cuda_errors(result):
+#     """Check CUDA errors and raise exception if needed."""
+#     if isinstance(result, tuple):
+#         error, *returns = result
+#         if error != cuda.CUresult.CUDA_SUCCESS:
+#             _, error_string = cuda.cuGetErrorString(error)
+#             raise RuntimeError(f"CUDA error: {error_string.decode('utf-8') if isinstance(error_string, bytes) else error_string}")
+#         return returns[0] if len(returns) == 1 else returns
+#     elif result != cudart.cudaError_t.cudaSuccess:
+#         _, error_string = cudart.cudaGetErrorString(result)
+#         raise RuntimeError(f"CUDA runtime error: {error_string.decode('utf-8') if isinstance(error_string, bytes) else error_string}")
+
+
+# def check_cuda_compatibility():
+#     """Check CUDA driver and runtime compatibility."""
+#     try:
+#         # Get driver version  
+#         driver_version = cuda.cuDriverGetVersion()[1]
+#         runtime_version = cudart.cudaRuntimeGetVersion()[1]
+        
+#         log.info(f"CUDA Driver version: {driver_version}")
+#         log.info(f"CUDA Runtime version: {runtime_version}")
+        
+#         if driver_version < runtime_version:
+#             log.warning(f"CUDA driver version ({driver_version}) is older than runtime version ({runtime_version}). "
+#                        f"This may cause compatibility issues. Please update your CUDA driver.")
+            
+#         return driver_version, runtime_version
+#     except Exception as e:
+#         log.warning(f"Could not check CUDA versions: {e}")
+#         return None, None
 
 
 class FeatureExtractorTensorRT(object):
@@ -63,6 +83,9 @@ class FeatureExtractorTensorRT(object):
         self.warmup_done = False
         self._dtype_warned = False  # Debug flag for dtype warnings
         
+        # Check CUDA compatibility
+        # check_cuda_compatibility()
+        
         # Setup CUDA context
         # self._setup_cuda()
         
@@ -72,48 +95,51 @@ class FeatureExtractorTensorRT(object):
         # Scale factor for normalization
         self.scale = 1.0 / 255.0
 
-    def _setup_cuda(self):
-        """Setup CUDA device and context."""
-        # Get device count
-        device_count = check_cuda_errors(cuda.cuDeviceGetCount())
-        if device_count == 0:
-            raise RuntimeError("No CUDA devices available")
+    # def _setup_cuda(self):
+    #     """Setup CUDA device and context."""
+    #     # Initialize CUDA driver
+    #     check_cuda_errors(cuda.cuInit(0))
         
-        # Get device
-        self.cuda_device = check_cuda_errors(cuda.cuDeviceGet(0))  # Use device 0
+    #     # Get device count
+    #     device_count = check_cuda_errors(cuda.cuDeviceGetCount())
+    #     if device_count == 0:
+    #         raise RuntimeError("No CUDA devices available")
         
-        # Try to get existing CUDA context first
-        self._created_own_context = False
-        try:
-            # Check if there's already an active context
-            result = cuda.cuCtxGetCurrent()
-            if isinstance(result, tuple) and len(result) == 2:
-                error, current_context = result
-                if error == cuda.CUresult.CUDA_SUCCESS and current_context is not None:
-                    self.cuda_context = current_context
-                    log.info("Using existing CUDA context")
-                else:
-                    # No active context, create new one
-                    self.cuda_context = check_cuda_errors(
-                        cuda.cuCtxCreate(cuda.CUctx_flags.CU_CTX_SCHED_AUTO, self.cuda_device)
-                    )
-                    self._created_own_context = True
-                    log.info("Created new CUDA context on device 0")
-            else:
-                # Fallback: create new context
-                self.cuda_context = check_cuda_errors(
-                    cuda.cuCtxCreate(cuda.CUctx_flags.CU_CTX_SCHED_AUTO, self.cuda_device)
-                )
-                self._created_own_context = True
-                log.info("Created fallback CUDA context on device 0")
-        except Exception as e:
-            # Final fallback: create new context
-            log.warning(f"Context detection failed: {e}, creating new context")
-            self.cuda_context = check_cuda_errors(
-                cuda.cuCtxCreate(cuda.CUctx_flags.CU_CTX_SCHED_AUTO, self.cuda_device)
-            )
-            self._created_own_context = True
-            log.info("Created emergency fallback CUDA context on device 0")
+    #     # Get device
+    #     self.cuda_device = check_cuda_errors(cuda.cuDeviceGet(0))  # Use device 0
+        
+    #     # Try to get existing CUDA context first
+    #     self._created_own_context = False
+    #     try:
+    #         # Check if there's already an active context
+    #         result = cuda.cuCtxGetCurrent()
+    #         if isinstance(result, tuple) and len(result) == 2:
+    #             error, current_context = result
+    #             if error == cuda.CUresult.CUDA_SUCCESS and current_context is not None:
+    #                 self.cuda_context = current_context
+    #                 log.info("Using existing CUDA context")
+    #             else:
+    #                 # No active context, create new one
+    #                 self.cuda_context = check_cuda_errors(
+    #                     cuda.cuCtxCreate(cuda.CUctx_flags.CU_CTX_SCHED_AUTO, self.cuda_device)
+    #                 )
+    #                 self._created_own_context = True
+    #                 log.info("Created new CUDA context on device 0")
+    #         else:
+    #             # Fallback: create new context
+    #             self.cuda_context = check_cuda_errors(
+    #                 cuda.cuCtxCreate(cuda.CUctx_flags.CU_CTX_SCHED_AUTO, self.cuda_device)
+    #             )
+    #             self._created_own_context = True
+    #             log.info("Created fallback CUDA context on device 0")
+    #     except Exception as e:
+    #         # Final fallback: create new context
+    #         log.warning(f"Context detection failed: {e}, creating new context")
+    #         self.cuda_context = check_cuda_errors(
+    #             cuda.cuCtxCreate(cuda.CUctx_flags.CU_CTX_SCHED_AUTO, self.cuda_device)
+    #         )
+    #         self._created_own_context = True
+    #         log.info("Created emergency fallback CUDA context on device 0")
 
     def _load_engine(self):
         """Load TensorRT engine from file."""
@@ -160,7 +186,29 @@ class FeatureExtractorTensorRT(object):
             size = np.dtype(trt.nptype(dtype)).itemsize
             for s in shape:
                 size *= s
-            allocation = common.cuda_call(cudart.cudaMalloc(size))
+            
+            # Validate memory size before allocation
+            if size <= 0:
+                raise ValueError(f"Invalid memory size {size} for tensor '{name}' with shape {shape}")
+            
+            # Check if size is reasonable (less than 2GB per tensor)
+            max_size = 2 * 1024 * 1024 * 1024  # 2GB
+            if size > max_size:
+                log.warning(f"Large memory allocation requested: {size / (1024**3):.2f} GB for tensor '{name}'")
+            
+            log.info(f"==============Allocating {'input' if is_input else 'output'} '{name}' of shape {shape} and dtype {dtype} ({size} bytes)")
+            
+            try:
+                allocation = common.cuda_call(cudart.cudaMalloc(size))
+            except RuntimeError as e:
+                if "35" in str(e):
+                    raise RuntimeError(f"CUDA Driver insufficient for runtime. Please update CUDA driver. "
+                                     f"Failed to allocate {size} bytes for tensor '{name}' with shape {shape}. "
+                                     f"Original error: {e}")
+                else:
+                    raise RuntimeError(f"CUDA memory allocation failed for tensor '{name}' "
+                                     f"(shape: {shape}, size: {size} bytes): {e}")
+                                     
             binding = {
                 "index": i,
                 "name": name,
@@ -340,34 +388,26 @@ class FeatureExtractorTensorRT(object):
         )
         return out_features
 
-    def __del__(self):
-        """Cleanup resources."""
-        try:
+    # def __del__(self):
+    #     """Cleanup resources."""
+    #     try:
             # Synchronize stream before cleanup
-            if hasattr(self, 'stream') and self.stream:
-                check_cuda_errors(cuda.cuStreamSynchronize(self.stream))
-                check_cuda_errors(cuda.cuStreamDestroy(self.stream))
+            # if hasattr(self, 'stream') and self.stream:
+            #     check_cuda_errors(cuda.cuStreamSynchronize(self.stream))
+            #     check_cuda_errors(cuda.cuStreamDestroy(self.stream))
             
-            # Free device memory
-            for inp in getattr(self, 'inputs', []):
-                if 'device' in inp and inp['device']:
-                    check_cuda_errors(cuda.cuMemFree(inp['device']))
-                if 'host' in inp and inp['host']:
-                    check_cuda_errors(cudart.cudaFreeHost(inp['host']))
+            # # Free device memory
+            # for allocation in getattr(self, 'allocations', []):
+            #     if allocation:
+            #         check_cuda_errors(cudart.cudaFree(allocation))
             
-            for out in getattr(self, 'outputs', []):
-                if 'device' in out and out['device']:
-                    check_cuda_errors(cuda.cuMemFree(out['device']))
-                if 'host' in out and out['host']:
-                    check_cuda_errors(cudart.cudaFreeHost(out['host']))
-            
-            # Only destroy CUDA context if we created it ourselves
-            # Don't destroy shared contexts as they might be used by other components
-            if hasattr(self, 'cuda_context') and self.cuda_context and hasattr(self, '_created_own_context'):
-                if self._created_own_context:
-                    check_cuda_errors(cuda.cuCtxDestroy(self.cuda_context))
+            # # Only destroy CUDA context if we created it ourselves
+            # # Don't destroy shared contexts as they might be used by other components
+            # if hasattr(self, 'cuda_context') and self.cuda_context and hasattr(self, '_created_own_context'):
+            #     if self._created_own_context:
+            #         check_cuda_errors(cuda.cuCtxDestroy(self.cuda_context))
                 
-        except Exception as e:
-            log.warning(f"Error during TensorRT cleanup: {e}")
+        # except Exception as e:
+        #     log.warning(f"Error during TensorRT cleanup: {e}")
 
 

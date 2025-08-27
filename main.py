@@ -165,7 +165,7 @@ def main(cfg):
         video_result = PipelineMessage(
             msg_type=MessageType.DATA,
             data={
-                'frame': frame.copy(),
+                'frame': frame,#.copy(),
             },
             metadata={
                 'frame_id': frames_processed

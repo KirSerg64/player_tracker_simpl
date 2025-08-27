@@ -1,4 +1,4 @@
-_target_: tracker.detector.yolo_api.YOLOOnnx
+_target_: tracker.detector.yolo_api.YOLOInference
 batch_size: 8
 cfg:
   # path_to_checkpoint: "${model_dir}/yolo/yolov11_football_epoch300_batch16_varinput.onnx" 

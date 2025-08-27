@@ -25,12 +25,12 @@ classifiers = [
 dependencies = [
     "tracklab",
     "soccernet==0.1.55",
-    "torch==2.5.0",
+    "torch==2.5.0", 
     "openmim==0.3.9",
     "lightning",
     "numpy",
     "onnx",
-    "onnxruntime-gpu==1.21.1",
+    # "onnxruntime-gpu==1.21.1",
     "ultralytics",
     "supervision",
     "inference",
@@ -62,8 +62,8 @@ dependencies = [
     # "torchreid @ git+https://github.com/VlSomers/bpbreid",
     # "prtreid @ git+https://github.com/KirSerg64/prtreid",
     "albumentations==1.4.3",
-    "boxmot",
-    "cupy-cuda12x",
+    "boxmot==15.0.2",
+    "sahi",
     "boto3",
 ]
 
@@ -86,6 +86,9 @@ tensorrt = [
 ]
 gpu = [
     "onnxruntime-gpu==1.21.1",
+    "cuda-python==12.2.1",
+    "cuda-bindings==12.9.0",
+    "cupy-cuda12x",
 ]
 cpu = [
     "onnxruntime",

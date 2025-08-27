@@ -13,16 +13,10 @@ from tracker.utils.pipeline_base import MessageType, ProcessConfig, PipelineMess
 
 log = logging.getLogger(__name__)
 
-class YOLOOnnx(ImageLevelModule):
+class YOLOInference(ImageLevelModule):
  
     input_columns = []
-    output_columns = [
-        "image_id",
-        "video_id",
-        "category_id",
-        "bbox_ltwh",
-        "bbox_conf",
-    ]
+    output_columns = []
 
     def __init__(self, cfg, device, batch_size, **kwargs):
         super().__init__(batch_size)
