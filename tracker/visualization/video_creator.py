@@ -175,3 +175,82 @@ def create_comparison_video(video_path: str, real_time_tracklets: list, final_tr
     progress.close()
     
     log.info(f"Comparison video saved: {output_path}")
+
+
+def create_overlay_video(video_path: str, real_time_tracklets: list, final_tracklets: dict, output_path: str):
+    """
+    Create a video showing both real-time and final tracklets overlaid on the same frame.
+    Real-time tracklet numbers are shown on top of bounding boxes, final tracklet numbers on bottom.
+    
+    Args:
+        video_path: Path to original video
+        real_time_tracklets: List of real-time tracklets per frame
+        final_tracklets: Dictionary of final refined tracklets
+        output_path: Path for output video
+    """
+    log.info(f"Creating overlay video: {output_path}")
+    
+    # Ensure output directory exists
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    
+    # Open original video
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        log.error(f"Failed to open video: {video_path}")
+        return
+    
+    # Get video properties
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    
+    # Create video writer
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+    
+    if not out.isOpened():
+        log.error(f"Failed to create video writer for: {output_path}")
+        cap.release()
+        return
+    
+    # Create visualizer
+    visualizer = EllipseDetection()
+    
+    # Progress bar
+    progress = tqdm(
+        total=total_frames,
+        desc="Creating overlay video",
+        unit="frames",
+        ncols=100
+    )
+    
+    frame_id = 0
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+        
+        # Draw real-time tracklets first (if available) with ID on top
+        if frame_id < len(real_time_tracklets):
+            visualizer.draw_detection_with_position(frame, real_time_tracklets[frame_id], text_position='top', color=(0, 255, 0))
+        
+        # Draw final tracklets with ID on bottom
+        visualizer.draw_final_tracklets_with_position(frame, final_tracklets, frame_id, text_position='bottom', color=(0, 255, 255))
+        
+        # Add legend
+        cv2.putText(frame, "Green (top): Real-time | Yellow (bottom): Final", (10, 30), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+        cv2.putText(frame, f"Frame: {frame_id}", (10, height - 20), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+        
+        out.write(frame)
+        frame_id += 1
+        progress.update(1)
+    
+    # Cleanup
+    cap.release()
+    out.release()
+    progress.close()
+    
+    log.info(f"Overlay video saved: {output_path}")

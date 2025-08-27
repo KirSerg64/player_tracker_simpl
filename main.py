@@ -1,5 +1,6 @@
 import argparse
 from datetime import datetime
+from multiprocessing.sharedctypes import copy
 import os
 from pathlib import Path
 
@@ -27,7 +28,7 @@ from tracker.utils.pipeline_base import MessageType, PipelineMessage, ProcessCon
 from tracker.algorithms.tracker import Tracker
 from tracker.gta_link.tracklet_refiner import TrackletsRefiner
 from tracker.visualization.players_drawer import EllipseDetection
-from tracker.visualization.video_creator import create_final_tracklet_video
+from tracker.visualization.video_creator import create_final_tracklet_video, create_overlay_video
 from tracker.utils.statistics import save_all_statistics
 
 os.environ["HYDRA_FULL_ERROR"] = "1"
@@ -165,7 +166,7 @@ def main(cfg):
         video_result = PipelineMessage(
             msg_type=MessageType.DATA,
             data={
-                'frame': frame,#.copy(),
+                'frame': frame.copy(),
             },
             metadata={
                 'frame_id': frames_processed
@@ -212,8 +213,9 @@ def main(cfg):
     # tracklet_writer.save_tracklets(tracklet_writer.get_tracklets(), tracklet_writer.file_path)
     log.info("Start tracklet refiner.")
 
+    real_time_tracklets = copy.deepcopy(tracklet_writer.get_tracklets())
     final_tracklets = tracklet_refiner._refine_tracklets(tracklet_writer.get_tracklets())
-    
+
     # Finalize tracklet refinement and get final results
     # log.info("Finalizing tracklet refinement...")
     # final_tracklets = tracklet_refiner.finalize_and_get_results()
@@ -235,12 +237,19 @@ def main(cfg):
         cap.release()        
         # Create final video with refined tracklets
         refined_video_path = os.path.join(output_dir, f"{video_name}_refined.mp4")
-        create_final_tracklet_video(
-            video_path=cfg.video_path,
-            final_tracklets=final_tracklets,
-            output_path=refined_video_path,
-            show_trajectories=False
-        )
+        if cfg.overlay_video:
+            create_overlay_video(
+                video_path=cfg.video_path,
+                final_tracklets=final_tracklets,
+                output_path=refined_video_path,
+            )
+        else:
+            create_final_tracklet_video(
+                video_path=cfg.video_path,
+                final_tracklets=final_tracklets,
+                output_path=refined_video_path,
+                show_trajectories=False
+            )
         # Save comprehensive statistics in all formats
         save_all_statistics(
             final_tracklets=final_tracklets,
