@@ -1,6 +1,6 @@
 import argparse
 from datetime import datetime
-from multiprocessing.sharedctypes import copy
+import copy
 import os
 from pathlib import Path
 
