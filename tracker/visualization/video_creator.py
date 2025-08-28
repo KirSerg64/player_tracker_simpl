@@ -237,11 +237,11 @@ def create_overlay_video(video_path: str, real_time_tracklets: list, final_track
         # Draw final tracklets with ID on bottom
         visualizer.draw_tracklets_with_position(frame, final_tracklets, frame_id, text_position='bottom', color=(0, 255, 255))
         
-        # Add legend
-        cv2.putText(frame, "Green (top): Real-time | Yellow (bottom): Final", (10, 30), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-        cv2.putText(frame, f"Frame: {frame_id}", (10, height - 20), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+        # # Add legend
+        # cv2.putText(frame, "Green (top): Real-time | Yellow (bottom): Final", (10, 30), 
+        #            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+        # cv2.putText(frame, f"Frame: {frame_id}", (10, height - 20), 
+        #            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
         
         out.write(frame)
         frame_id += 1

@@ -163,7 +163,7 @@ class EllipseDetection(DetectionVisualizer):
                     startAngle=-45.0,
                     endAngle=235.0,
                     color=color,
-                    thickness=3,  # Thicker for final tracklets
+                    thickness=2,  # Thicker for final tracklets
                     lineType=cv2.LINE_AA,
                 )
                 
@@ -184,7 +184,7 @@ class EllipseDetection(DetectionVisualizer):
                     f"{int(track_id):.0f}",
                     text_center,
                     fontFace=1,
-                    fontScale=1,  # Larger font for final tracklets
+                    fontScale=0.5,  # Larger font for final tracklets
                     thickness=1,
                     alignH="c",
                     alignV=alignV,

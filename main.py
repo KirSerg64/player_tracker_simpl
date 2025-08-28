@@ -180,8 +180,8 @@ def main(cfg):
 
             if cfg.save_results and video_writer is not None:
                 # Draw frame using visualizers
-                visualizer.draw_detection(tracklets.data['frame'], tracklets.data['tracklets'])
-                # Write to video if required       
+                visualizer.draw_detection(tracklets.data['frame'], tracklets.data['detections'])
+                # Write to video if required
                 video_writer.write(tracklets.data['frame'])
         else:
             log.warning(f"No detections for frame {frames_processed}")
