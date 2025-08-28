@@ -144,7 +144,7 @@ def main(cfg):
     #create tracklet refiner
     tracklet_refiner = instantiate(cfg.gta_link, device=device, batch_size=cfg.modules.refiner.batch_size)
     # create tracklet writer
-    tracklet_writer = TrackletReadWrite(file_path=os.path.join(output_dir, "tracklets.pkl"))
+    tracklet_writer = TrackletReadWrite(file_path=os.path.join(output_dir, "original_tracklets.pkl"))
     #create visualizer
     visualizer = EllipseDetection()
 
@@ -210,7 +210,7 @@ def main(cfg):
     # Close progress bar
     progress_bar.close()
 
-    # tracklet_writer.save_tracklets(tracklet_writer.get_tracklets(), tracklet_writer.file_path)
+    tracklet_writer.save_tracklets(tracklet_writer.get_tracklets(), tracklet_writer.file_path)
     log.info("Start tracklet refiner.")
 
     real_time_tracklets = copy.deepcopy(tracklet_writer.get_tracklets())
@@ -225,7 +225,7 @@ def main(cfg):
     if cfg.save_results and final_tracklets:
         _, video_name = os.path.split(cfg.video_path)
         video_name = os.path.splitext(video_name)[0]
-        final_tracklets_save_path = os.path.join(output_dir, video_name + ".pkl")
+        final_tracklets_save_path = os.path.join(output_dir, video_name + "_final_tracklets.pkl")
         log.info(f"Final tracklets {len(final_tracklets)} saved to: {final_tracklets_save_path}")
         tracklet_writer.save_tracklets(final_tracklets, final_tracklets_save_path)
 

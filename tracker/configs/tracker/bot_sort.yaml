@@ -1,5 +1,17 @@
 _target_: tracker.algorithms.tracker.Tracker
 batch_size: 1
+tracker_type: 'bot_sort'
 cfg:
+  per_class: False
+  track_high_thresh: 0.5
+  track_low_thresh: 0.1
+  new_track_thresh: 0.6
+  track_buffer: 100
+  match_thresh: 0.8
+  proximity_thresh: 0.5
+  appearance_thresh: 0.25
+  cmc_method: "ecc"
+  fuse_first_associate: False
+  with_reid: True
   reid_weights: '${model_dir}/reid/feature_extractor_osnet_x1_0.onnx'
   half: true
