@@ -751,6 +751,14 @@ class CuPyTrackletRefiner:
         
         return final_result
 
+    def clear_caches(self):
+        """Clear internal caches to free memory."""
+        # self._feature_cache.clear()
+        # self._overlap_cache.clear()
+        if self.use_gpu:
+            cp.get_default_memory_pool().free_all_blocks()
+            log.info("Cleared GPU memory pool")
+
 
 # High-level API functions matching original interface
 def detect_id_switch(embs, eps=None, min_samples=None, max_clusters=None):
@@ -816,6 +824,10 @@ def query_subtracks(seg1, seg2, track1, track2):
     refiner = CuPyTrackletRefiner()
     return refiner.query_subtracks(seg1, seg2, track1, track2)
 
+def clear_caches():
+    """Clear internal caches to free memory."""
+    refiner = CuPyTrackletRefiner()
+    refiner.clear_caches()
 
 def save_results(sct_output_path, tracklets):
     """

@@ -18,7 +18,7 @@ cfg:
   mapping_strategy: 'similarity' # Track ID mapping strategy - "similarity" or "sequential"
   return_refined_detections: true # If True, return refined tracklets as detections DataFrame
 # Batching
-  use_batched_merge: true  # Use batched merging for efficiency
+  use_batched_merge: false  # Use batched merging for efficiency
 # GPU Acceleration Options (requires CuPy: pip install cupy-cuda12x)
   use_gpu_acceleration: true   # Enable GPU acceleration for merging
   gpu_batch_size: null        # Auto-tune based on GPU memory if null

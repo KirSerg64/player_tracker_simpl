@@ -178,7 +178,8 @@ class TrackletsRefiner():
                     merge_tracklets,
                     merge_tracklets_gpu,
                     merge_tracklets_batched,
-                    benchmark_gpu_vs_cpu
+                    benchmark_gpu_vs_cpu,
+                    clear_caches,
                 )
                 
                 # Assign GPU functions
@@ -192,6 +193,7 @@ class TrackletsRefiner():
                 self.merge_tracklets_gpu = merge_tracklets_gpu
                 self.merge_tracklets_batched = merge_tracklets_batched
                 self.benchmark_gpu_vs_cpu = benchmark_gpu_vs_cpu
+                self.clear_caches = clear_caches
                 
                 print("GPU acceleration enabled with CuPy")
                 
@@ -631,12 +633,14 @@ class TrackletsRefiner():
         try:
             if self.use_gpu_acceleration and self.GPU_AVAILABLE:
                 log.debug(f"Using GPU-accelerated merge for {len(tracklets_dict)} tracklets")
-                return self.merge_tracklets_gpu(
+                result = self.merge_tracklets_gpu(
                     tracklets_dict,
                     merge_dist_thres=self.merge_dist_thres,
                     max_x_range=max_x_range,
                     max_y_range=max_y_range
                 )
+                self.clear_caches()  # Clear GPU caches after use
+                return result
             else:
                 # Use CPU version
                 return self.merge_tracklets(

@@ -15,7 +15,7 @@ from sklearn.cluster import DBSCAN
 from sklearn.preprocessing import StandardScaler
 from scipy.spatial.distance import cdist
 
-from .Tracklet import Tracklet
+from tracker.gta_link.utils.Tracklet import Tracklet
 
 import argparse
 
@@ -74,15 +74,15 @@ def query_subtracks(seg1, seg2, track1, track2):
         s1_startFrame = track1.times[s1_start]  # Get the starting frame of subtrack 1
         s2_startFrame = track2.times[s2_start]  # Get the starting frame of subtrack 2
 
-        # print("track 1 and 2 start frame:", s1_startFrame, s2_startFrame)
-        # print("track 1 and 2 end frame:", track1.times[s1_end], track2.times[s2_end])
+        print("track 1 and 2 start frame:", s1_startFrame, s2_startFrame)
+        print("track 1 and 2 end frame:", track1.times[s1_end], track2.times[s2_end])
 
         if s1_startFrame < s2_startFrame:  # Compare the starting frames of the two subtracks
-            assert track1.times[s1_end] <= s2_startFrame
+            assert track1.times[s1_end] <= s2_startFrame, "Overlapping: track1.times[s1_end] <= s2_startFrame"
             subtracks.append(subtrack_1)
             subtracks.append(subtrack_2)
         else:
-            assert s1_startFrame >= track2.times[s2_end]
+            assert s1_startFrame >= track2.times[s2_end], "Overlapping: s1_startFrame >= track2.times[s2_end]"
             subtracks.append(subtrack_2)
             subtracks.append(subtrack_1)
         seg1.pop(0)
@@ -262,7 +262,7 @@ def check_spatial_constraints(trk_1, trk_2, max_x_range, max_y_range):
     '''
     
     subtracks = query_subtracks(seg_1, seg_2, trk_1, trk_2)
-    # assert(len(subtracks) > 1)                    # debug line, delete later
+    assert(len(subtracks) > 1), "No common subtracks"                    # debug line, delete later
     subtrack_1st = subtracks.pop(0)
     # print("Entering while loop")
     while subtracks:
@@ -315,8 +315,8 @@ def merge_tracklets(tracklets, max_x_range=None, max_y_range=None, merge_dist_th
         # Translate this index to the original array's indices
         masked_indices = np.where(non_diagonal_mask)
         track1_idx, track2_idx = masked_indices[0][min_index], masked_indices[1][min_index]
-        # print("Tracks idx to merge:", track1_idx, track2_idx)
-        # print(f"Minimum value in masked Dist: {min_value}")
+        print("Tracks idx to merge:", track1_idx, track2_idx)
+        print(f"Minimum value in masked Dist: {min_value}")
         # print(f"Corresponding value in Dist using recalculated indices: {Dist[track1_idx, track2_idx]}")
 
         assert min_value == Dist[track1_idx, track2_idx] == Dist[track2_idx, track1_idx], "Values should match!"
@@ -325,7 +325,7 @@ def merge_tracklets(tracklets, max_x_range=None, max_y_range=None, merge_dist_th
         track2 = tracklets[idx2tid[track2_idx]]
 
         inSpatialRange = check_spatial_constraints(track1, track2, max_x_range, max_y_range)
-        # print("In spatial range:", inSpatialRange)
+        print("In spatial range:", inSpatialRange)
         if inSpatialRange:
             track1.features += track2.features      # Note: currently we merge track 2 to track 1 without creating a new track
             track1.times += track2.times

@@ -9,7 +9,7 @@ import glob
 from pathlib import Path
 import re
 import json
-from aws_utils import load_file_to_bucket
+from aws_utils import upload_file_to_bucket
 from datetime import datetime
 import numpy as np
 from tracker.visualization.players_drawer import EllipseDetection
@@ -235,11 +235,11 @@ def create_combined_video_from_segments(
     else:
         print("❌ Error: No video writer was initialized. No valid segments found.")
 
-    # load to 
+    # upload to S3
     # Get current date and time
-    date_time = datetime.now().strftime("%Y%m%d_%H%M%S")
-    save_name = f"full_result_video_{date_time}.mp4"
-    load_file_to_bucket(output_video_path, save_name)
+    # date_time = datetime.now().strftime("%Y%m%d_%H%M%S")
+    # save_name = f"full_result_video_{date_time}.mp4"
+    # upload_file_to_bucket(output_video_path, save_name)
     
 
 

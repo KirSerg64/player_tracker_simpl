@@ -148,6 +148,14 @@ class VideoSplitter:
     
     def _get_video_info(self, video_path: Path) -> Dict[str, Any]:
         """Get video information using FFprobe"""
+
+        # cmd = "ffprobe -hide_banner -decoders -encoders | grep h264".split()
+        # try:
+        #     result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        #     logger.debug(f"FFprobe decoders output: {result.stdout}")
+        # except subprocess.CalledProcessError as e:
+        #     logger.warning(f"FFprobe decoders check failed: {e.stderr}")
+        
         cmd = [
             'ffprobe', '-v', 'quiet', '-print_format', 'json', 
             '-show_format', '-show_streams',
@@ -230,7 +238,7 @@ class VideoSplitter:
             '-crf', str(self.quality),
             '-preset', self.preset,
         ]
-        
+        #ffmpeg -y -vsync 0 -hwaccel cuda -hwaccel_output_format cuda -i input.mp4 -ss 00 -t 100 -c:a copy -c:v h264_nvenc -preset fast output1.mp4 
         # Add FPS conversion if target FPS is specified
         if target_fps is not None:
             cmd.extend(['-r', str(target_fps)])
@@ -242,7 +250,7 @@ class VideoSplitter:
             if self.debug:
                 logger.debug(f"FFmpeg command: {' '.join(cmd)}")
                 # For debug mode, capture output but limit it and add timeout
-                result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=300)  # 5 min timeout
+                result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=800)  # 800 sec timeout
                 # Save only first/last parts to avoid memory issues
                 stderr_lines = result.stderr.split('\n')
                 if len(stderr_lines) > 100:
@@ -257,7 +265,7 @@ class VideoSplitter:
                     f.write(f"STDERR:\n{truncated_stderr}\n")
             else:
                 # For production, don't capture output - redirect to null device with timeout
-                result = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True, timeout=600)  # 10 min timeout per segment
+                result = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True, timeout=1200)  # 10 min timeout per segment
             
             return output_path
             
@@ -376,7 +384,7 @@ def main():
     parser.add_argument('--video_codec', type=str, default='libx264', help='Video codec (default: libx264)')
     parser.add_argument('--audio_codec', type=str, default='aac', help='Audio codec (default: aac)')
     parser.add_argument('--quality', type=int, default=23, help='Video quality CRF value (default: 23)')
-    parser.add_argument('--preset', type=str, default='medium', help='FFmpeg preset (default: medium)')
+    parser.add_argument('--preset', type=str, default='fast', help='FFmpeg preset (default: medium)')
     parser.add_argument('--debug', action='store_true', help='Enable debug mode')
     
     args = parser.parse_args()

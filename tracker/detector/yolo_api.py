@@ -43,7 +43,8 @@ class YOLOInference(ImageLevelModule):
     def callback(self, image_slice) -> sv.Detections:
         results = self.model.predict(
             image_slice, 
-            # device=self.device,
+            device=self.device,
+            agnostic_nms=True,
             verbose=False,
             show=False,
             save=False
@@ -69,6 +70,7 @@ class YOLOInference(ImageLevelModule):
         else:
             results_by_image = self.model.predict(
                 images, 
+                agnostic_nms=True,
                 device=self.device,
                 show=False,
                 save=False,
