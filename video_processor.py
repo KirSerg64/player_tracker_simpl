@@ -30,6 +30,7 @@ from tracker.gta_link.tracklet_refiner import TrackletsRefiner
 from tracker.visualization.players_drawer import EllipseDetection
 from tracker.visualization.video_creator import create_final_tracklet_video, create_overlay_video
 from tracker.utils.statistics import save_all_statistics
+import gc
 
 os.environ["HYDRA_FULL_ERROR"] = "1"
 # Enable YOLO outputs for debugging
@@ -264,7 +265,7 @@ def main(cfg):
         #     upload_file_to_bucket(refined_video_path, save_name)
 
     # cv2.destroyAllWindows()
-    
+    clear_environment()
     log.info(f"Processing completed! Processed {frames_processed} frames")
     return 0
 
@@ -292,8 +293,10 @@ def init_environment(cfg):
     return device
 
 
-def close_environment():
+def clear_environment():
     # wandb.finish()
+    gc.collect()
+    torch.cuda.empty_cache()
     return
 
 
