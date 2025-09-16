@@ -326,14 +326,18 @@ class CuPyTrackletRefiner:
         """
         n = len(tracklets)
         tracklet_ids = list(tracklets.keys())
+        log.debug(f"temporal_overlaps: computing for {n} tracklets")
         
         if self.use_gpu:
+            log.debug("temporal_overlaps: creating GPU bool matrix")
             overlap_matrix = cp.zeros((n, n), dtype=cp.bool_)
         else:
             overlap_matrix = np.zeros((n, n), dtype=bool)
         
+        log.debug("temporal_overlaps: creating time sets")
         time_sets = [set(tracklets[tid].times) for tid in tracklet_ids]
         
+        log.debug("temporal_overlaps: computing intersections")
         for i in range(n):
             for j in range(i+1, n):
                 has_overlap = len(time_sets[i] & time_sets[j]) > 0
@@ -350,6 +354,8 @@ class CuPyTrackletRefiner:
         tracklet_indices = []
         feature_counts = []
         
+        log.debug(f"batch_extract: processing {len(tracklets)} tracklets")
+        
         for i, (tid, tracklet) in enumerate(tracklets.items()):
             if tracklet.features:
                 features = np.stack(tracklet.features)
@@ -360,13 +366,16 @@ class CuPyTrackletRefiner:
                 feature_counts.append(0)
         
         if all_features:
+            log.debug("batch_extract: stacking features")
             features_batch = np.vstack(all_features)
             if self.use_gpu:
+                log.debug("batch_extract: converting to GPU")
                 features_gpu = cp.asarray(features_batch)
             else:
                 features_gpu = features_batch
         else:
             if self.use_gpu:
+                log.debug("batch_extract: creating empty GPU array")
                 features_gpu = cp.empty((0, 512))  # Assume 512-dim features
             else:
                 features_gpu = np.empty((0, 512))
@@ -377,21 +386,28 @@ class CuPyTrackletRefiner:
         """
         Batch cosine distance computation on GPU.
         """
+        log.debug(f"cosine_batch: input shapes {features1.shape}, {features2.shape}")
+        
         # Normalize features
+        log.debug("cosine_batch: computing norms")
         norm1 = cp.linalg.norm(features1, axis=1, keepdims=True)
         norm2 = cp.linalg.norm(features2, axis=1, keepdims=True)
         
         # Avoid division by zero
+        log.debug("cosine_batch: avoiding zero division")
         norm1 = cp.where(norm1 == 0, 1e-8, norm1)
         norm2 = cp.where(norm2 == 0, 1e-8, norm2)
         
+        log.debug("cosine_batch: normalizing features")
         features1_norm = features1 / norm1
         features2_norm = features2 / norm2
         
         # Cosine similarity matrix
+        log.debug("cosine_batch: computing dot product")
         similarity = cp.dot(features1_norm, features2_norm.T)
         
         # Convert to cosine distance
+        log.debug("cosine_batch: converting to distances")
         distances = 1 - similarity
         
         return distances
@@ -406,26 +422,33 @@ class CuPyTrackletRefiner:
         3. Vectorized cosine distance computation
         4. Memory-efficient processing
         """
+        logging.info("Computing distance matrix with GPU optimizations")
         n = len(tracklets)
         tracklet_ids = list(tracklets.keys())
         
         if n == 0:
+            log.debug("distance_matrix: empty tracklets, returning zeros")
             return cp.zeros((0, 0)) if self.use_gpu else np.zeros((0, 0))
         
         # Initialize distance matrix
         if self.use_gpu:
+            log.debug(f"distance_matrix: creating GPU matrix {n}x{n}")
             dist_matrix = cp.zeros((n, n), dtype=cp.float32)
         else:
             dist_matrix = np.zeros((n, n), dtype=np.float32)
         
         # Precompute temporal overlaps
+        log.debug("distance_matrix: computing temporal overlaps")
         overlap_matrix = self.precompute_temporal_overlaps(tracklets)
         
         # Batch extract features
+        logging.info("Batch extracting features")
+        log.debug("distance_matrix: batch extracting features")
         all_features, _, feature_counts = self.batch_extract_features(tracklets)
         
         # Compute distances
         feature_start_idx = 0
+        log.debug("distance_matrix: starting distance computation loop")
         
         for i, tid1 in enumerate(tracklet_ids):
             n_features1 = feature_counts[i]
@@ -454,11 +477,13 @@ class CuPyTrackletRefiner:
                 if tid1 != tid2 and overlap_matrix[i, j]:
                     dist_matrix[i, j] = 1.0  # Maximum distance for overlapping tracks
                 elif n_features2 == 0:
-                    dist_matrix[i, j] = 1.0  # Max distance for tracklets without features
+                    dist_matrix[i, j] = 1.0  # Maximum distance for tracklets without features
                 else:
                     # Compute feature-based distance
                     features2 = all_features[feature_start_idx2:feature_start_idx2 + n_features2]
+                    log.debug(f"distance_matrix: computing cosine distances {tid1}-{tid2}")
                     pairwise_distances = self.compute_cosine_distances_batch(features1, features2)
+                    log.debug(f"distance_matrix: computing mean for {tid1}-{tid2}")
                     mean_distance = cp.mean(pairwise_distances)
                     dist_matrix[i, j] = mean_distance
                 
@@ -466,6 +491,7 @@ class CuPyTrackletRefiner:
             
             feature_start_idx += n_features1
         
+        log.debug(f"distance_matrix: completed, returning matrix shape {dist_matrix.shape}")
         return dist_matrix
 
     def check_spatial_constraints_vectorized(self, trk_1: 'Tracklet', trk_2: 'Tracklet', 
@@ -519,7 +545,9 @@ class CuPyTrackletRefiner:
         Smart distance matrix update - only recompute affected row/column.
         This is a MAJOR optimization over full matrix recomputation.
         """
+        logging.info(f"Updating distance matrix after merging indices {merged_idx} and {removed_idx}")
         n = dist_matrix.shape[0]  # Use actual matrix size instead of tracklet_ids length
+        log.debug(f"update_matrix: current size {n}, merged_idx {merged_idx}, removed_idx {removed_idx}")
         
         # Validate indices
         if removed_idx >= n or merged_idx >= n:
@@ -528,18 +556,22 @@ class CuPyTrackletRefiner:
             return self.get_distance_matrix_gpu(tracklets)
         
         # Remove the merged tracklet's row and column
+        log.debug("update_matrix: creating removal mask")
         mask = cp.ones(n, dtype=cp.bool_) if self.use_gpu else np.ones(n, dtype=bool)
         mask[removed_idx] = False
         
         # Create new smaller matrix
         new_size = n - 1
         if self.use_gpu:
+            log.debug(f"update_matrix: creating new GPU matrix {new_size}x{new_size}")
             new_dist_matrix = cp.zeros((new_size, new_size), dtype=cp.float32)
         else:
             new_dist_matrix = np.zeros((new_size, new_size), dtype=np.float32)
         
         # Copy existing distances (excluding removed row/column)
+        log.debug("update_matrix: finding old indices")
         old_indices = cp.where(mask)[0] if self.use_gpu else np.where(mask)[0]
+        log.debug("update_matrix: copying existing distances")
         for i, old_i in enumerate(old_indices):
             old_i = ensure_python_int(old_i)  # Convert to Python int
             for j, old_j in enumerate(old_indices):
@@ -559,6 +591,7 @@ class CuPyTrackletRefiner:
         # Extract features for the merged tracklet
         if merged_tracklet.features:
             if self.use_gpu:
+                log.debug("update_matrix: converting merged features to GPU")
                 merged_features = cp.asarray(np.stack(merged_tracklet.features))
             else:
                 merged_features = np.stack(merged_tracklet.features)
@@ -566,6 +599,7 @@ class CuPyTrackletRefiner:
             merged_times = set(merged_tracklet.times)
             
             new_merged_idx = merged_idx if merged_idx < removed_idx else merged_idx - 1
+            log.debug(f"update_matrix: new_merged_idx = {new_merged_idx}")
             
             for i, old_idx in enumerate(old_indices):
                 old_idx = ensure_python_int(old_idx)  # Convert to Python int
@@ -588,16 +622,20 @@ class CuPyTrackletRefiner:
                     distance = 1.0
                 else:
                     if self.use_gpu:
+                        log.debug(f"update_matrix: converting other features to GPU for idx {old_idx}")
                         other_features = cp.asarray(np.stack(other_tracklet.features))
                     else:
                         other_features = np.stack(other_tracklet.features)
                     
+                    log.debug(f"update_matrix: computing distances for merged tracklet")
                     pairwise_distances = self.compute_cosine_distances_batch(
                         merged_features, other_features
                     )
+                    log.debug(f"update_matrix: computing mean distance")
                     distance = float(cp.mean(pairwise_distances))
                 
                 # Update matrix symmetrically
+                log.debug(f"update_matrix: updating positions ({new_merged_idx},{i}) and ({i},{new_merged_idx})")
                 new_dist_matrix[new_merged_idx, i] = distance
                 new_dist_matrix[i, new_merged_idx] = distance
         
@@ -616,10 +654,12 @@ class CuPyTrackletRefiner:
         start_time = time.time()
         
         # Make working copy
+        log.debug("merge_gpu: creating working copy")
         working_tracklets = tracklets.copy()
         tracklet_ids = list(working_tracklets.keys())
         
         # Initial distance matrix computation
+        log.debug("merge_gpu: computing initial distance matrix")
         dist_matrix = self.get_distance_matrix_gpu(working_tracklets)
         
         merge_count = 0
@@ -628,18 +668,22 @@ class CuPyTrackletRefiner:
         for iteration in range(max_iterations):
             # Create mask for non-diagonal elements
             n = dist_matrix.shape[0]
+            log.debug(f"merge_gpu: iteration {iteration}, matrix size {n}")
             
             if n <= 1:
                 break
             
             if self.use_gpu:
+                log.debug("merge_gpu: creating GPU mask")
                 mask = ~cp.eye(n, dtype=cp.bool_)
+                log.debug("merge_gpu: applying GPU mask")
                 masked_distances = cp.where(mask, dist_matrix, cp.inf)
             else:
                 mask = ~np.eye(n, dtype=bool)
                 masked_distances = np.where(mask, dist_matrix, np.inf)
             
             # Find minimum distance
+            log.debug("merge_gpu: finding min distance")
             min_distance = cp.min(masked_distances) if self.use_gpu else np.min(masked_distances)
             
             if float(min_distance) >= merge_dist_thres:
@@ -647,6 +691,7 @@ class CuPyTrackletRefiner:
             
             # Find indices of minimum distance
             if self.use_gpu:
+                log.debug("merge_gpu: finding GPU argmin")
                 min_idx = cp.unravel_index(cp.argmin(masked_distances), masked_distances.shape)
                 track1_idx, track2_idx = ensure_python_int(min_idx[0]), ensure_python_int(min_idx[1])
             else:
@@ -694,6 +739,7 @@ class CuPyTrackletRefiner:
             
             # Smart matrix update BEFORE modifying tracklet_ids list
             removed_idx = track2_idx
+            log.debug("merge_gpu: updating distance matrix")
             dist_matrix = self.update_distance_matrix_after_merge(
                 dist_matrix, track1_idx, removed_idx, working_tracklets, tracklet_ids
             )
@@ -736,6 +782,7 @@ class CuPyTrackletRefiner:
             batch_tracklets = dict(tracklet_items[i:i+batch_size])
             log.debug(f"Processing batch {i//batch_size + 1}: {len(batch_tracklets)} tracklets")
             
+            log.debug(f"batched_gpu: calling merge_tracklets_gpu for batch {i//batch_size + 1}")
             merged_batch = self.merge_tracklets_gpu(
                 batch_tracklets, merge_dist_thres, max_x_range, max_y_range
             )
@@ -745,6 +792,7 @@ class CuPyTrackletRefiner:
         
         # Final cross-batch merge
         log.info(f"Final cross-batch merging: {len(temp_tracklets)} tracklets")
+        log.debug("batched_gpu: calling final merge_tracklets_gpu")
         final_result = self.merge_tracklets_gpu(
             temp_tracklets, merge_dist_thres, max_x_range, max_y_range
         )
