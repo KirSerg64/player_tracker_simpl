@@ -65,6 +65,9 @@ dependencies = [
     "boxmot==15.0.2",
     "sahi",
     "boto3",
+    "pika",
+    "requests",
+    "python-dotenv",
 ]
 
 [project.optional-dependencies]
@@ -86,9 +89,9 @@ tensorrt = [
 ]
 gpu = [
     "onnxruntime-gpu==1.21.1",
-    "cuda-python==12.2.1",
     "cuda-bindings==12.9.0",
     "cupy-cuda12x",
+    "cuda-python",
 ]
 cpu = [
     "onnxruntime",
