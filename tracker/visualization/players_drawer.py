@@ -14,11 +14,13 @@ class EllipseDetection(DetectionVisualizer):
         self.color_text = (0, 0, 0)
 
     def draw_detection(self, image, detection_pred):
+        img_height, _ = image.shape[:2]
         for detection in detection_pred:
             x1, y1, x2, y2 = detection[:4].tolist()
             track_id = int(detection[4])
             center = (int((x1 + x2) / 2), int(y2))
             width = x2 - x1
+            height = y2 - y1
             cv2.ellipse(
                 image,
                 center=center,
@@ -29,13 +31,14 @@ class EllipseDetection(DetectionVisualizer):
                 color=self.color_ellipse,
                 thickness=2,
                 lineType=cv2.LINE_AA,
-            )                
+            ) 
+            font_scale = img_height / height            
             draw_text(
                 image,
                 f"{track_id}",
                 center,
                 fontFace=1,
-                fontScale=0.7,
+                fontScale=font_scale,
                 thickness=1,
                 alignH="c",
                 alignV="c",

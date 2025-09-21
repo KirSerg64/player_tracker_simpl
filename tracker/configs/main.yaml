@@ -27,7 +27,7 @@ experiment_name: "player_tracking"
 project_dir: "${hydra:runtime.cwd}"
 
 save_results: true
-overlay_video: true
+overlay_video: false
 save_to_aws: true
 hydra:
   run:

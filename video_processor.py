@@ -22,7 +22,7 @@ from hydra.core.hydra_config import HydraConfig
 from omegaconf import OmegaConf
 import torch.multiprocessing as mp
 from tracker.gta_link.tracklet_read_write import TrackletReadWrite
-from tracker.utils.aws_utils import upload_file_to_bucket
+# from tracker.utils.aws_utils import upload_file_to_bucket
 from tracker.utils.video_reader import VideoReaderProcess
 from tracker.utils.pipeline_base import MessageType, PipelineMessage, ProcessConfig, PipelineProcess
 from tracker.algorithms.tracker import Tracker
