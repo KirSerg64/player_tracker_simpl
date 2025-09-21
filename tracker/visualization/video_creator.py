@@ -53,8 +53,8 @@ def create_final_tracklet_video(video_path: str, final_tracklets: dict, output_p
         return
     
     # Create visualizer
-    visualizer = EllipseDetection()
-    
+    visualizer = EllipseDetection(font_algorithm="adaptive")
+
     # Progress bar for final video creation
     final_progress = tqdm(
         total=total_frames,
@@ -129,8 +129,8 @@ def create_comparison_video(video_path: str, real_time_tracklets: list, final_tr
         return
     
     # Create visualizer
-    visualizer = EllipseDetection()
-    
+    visualizer = EllipseDetection(font_algorithm="adaptive")
+
     # Progress bar
     progress = tqdm(
         total=total_frames,
