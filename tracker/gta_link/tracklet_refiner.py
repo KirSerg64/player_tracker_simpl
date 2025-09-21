@@ -168,18 +168,14 @@ class TrackletsRefiner():
         if self.GPU_AVAILABLE:
             try:
                 # Import GPU functions
-                from tracker.gta_link.utils.refine_tracklets_cupy import (
+                from tracker.gta_link.utils.refine_tracklets_torch import (
                     find_consecutive_segments,
                     query_subtracks,
                     get_distance_matrix,
                     detect_id_switch,
                     get_spatial_constraints,
                     split_tracklets,
-                    merge_tracklets,
-                    merge_tracklets_gpu,
-                    merge_tracklets_batched,
-                    benchmark_gpu_vs_cpu,
-                    clear_caches,
+                    merge_tracklets,   
                 )
                 
                 # Assign GPU functions
@@ -190,10 +186,10 @@ class TrackletsRefiner():
                 self.get_spatial_constraints = get_spatial_constraints
                 self.split_tracklets = split_tracklets
                 self.merge_tracklets = merge_tracklets
-                self.merge_tracklets_gpu = merge_tracklets_gpu
-                self.merge_tracklets_batched = merge_tracklets_batched
-                self.benchmark_gpu_vs_cpu = benchmark_gpu_vs_cpu
-                self.clear_caches = clear_caches
+                # self.merge_tracklets_gpu = merge_tracklets_gpu
+                # self.merge_tracklets_batched = refine_tracklets_torch
+                # self.benchmark_gpu_vs_cpu = benchmark_gpu_vs_cpu
+                # self.clear_caches = clear_caches
                 
                 print("GPU acceleration enabled with CuPy")
                 
@@ -607,7 +603,7 @@ class TrackletsRefiner():
                 log.debug(f"Using GPU-accelerated batched merge for {len(tracklets_dict)} tracklets")
                 return self.merge_tracklets_batched(
                     tracklets_dict,
-                    seq2Dist={},  # Empty dict as we're not using it for visualization
+                    # seq2Dist={},  # Empty dict as we're not using it for visualization
                     batch_size=self.batch_size,
                     max_x_range=max_x_range,
                     max_y_range=max_y_range,
@@ -633,13 +629,12 @@ class TrackletsRefiner():
         try:
             if self.use_gpu_acceleration and self.GPU_AVAILABLE:
                 log.debug(f"Using GPU-accelerated merge for {len(tracklets_dict)} tracklets")
-                result = self.merge_tracklets_gpu(
+                result = self.merge_tracklets(
                     tracklets_dict,
                     merge_dist_thres=self.merge_dist_thres,
                     max_x_range=max_x_range,
                     max_y_range=max_y_range
                 )
-                self.clear_caches()  # Clear GPU caches after use
                 return result
             else:
                 # Use CPU version
