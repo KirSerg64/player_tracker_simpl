@@ -1,4 +1,3 @@
-
 import argparse
 from collections import defaultdict
 import os
@@ -13,11 +12,12 @@ from aws_utils import upload_file_to_bucket
 from datetime import datetime
 import numpy as np
 import logging
+
 from tracker.visualization.video_creator import create_final_tracklet_video
 from tracker.visualization.players_drawer import EllipseDetection
 from tracklab.utils.cv2 import draw_text
-from tracker.utils.video_writer import FFmpegVideoWriter
 
+from tracker.utils.video_writer import FFmpegVideoWriter
 
 log = logging.getLogger(__name__)
 
@@ -181,8 +181,6 @@ def create_combined_video_from_segments(
         with open(metadata_file, 'r') as f:
             segments_metadata = json.load(f)
             overlap_duration = segments_metadata.get('overlap_duration', 0)
-            orig_width = segments_metadata.get('width', None)
-            orig_height = segments_metadata.get('height', None)
     
     # Find all segment directories and sort them
     segment_dirs = sorted([
@@ -200,13 +198,9 @@ def create_combined_video_from_segments(
     print(f"Output video will be saved to: {output_video_path}")
     
     # Initialize video writer
-    total_frames_written = 0      
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    video_writer = cv2.VideoWriter(
-        output_video_path, fourcc, frame_rate, (orig_width, orig_height)
-    )
-    print(f"Initialized combined video writer: {orig_width}x{orig_height} at {frame_rate} FPS")
-
+    video_writer = None
+    total_frames_written = 0
+    
     for segment_idx, segment_dir in enumerate(segment_dirs):
         print(f"\nProcessing {segment_dir.name}...")
         
@@ -243,16 +237,54 @@ def create_combined_video_from_segments(
             frames_to_skip = int(overlap_duration * frame_rate)
             print(f"Skipping {frames_to_skip} frames at start of {segment_dir.name} (overlap: {overlap_duration}s)")
         
+        # Create segment video with proper frame skipping
+        segment_output_path = str(outputs_dir / f"segment_{segment_idx}_tracklets.mp4")
         create_segment_video_with_skip(
             str(video_file), 
             final_tracklets, 
-            video_writer,
-            orig_width,
-            orig_height, 
+            segment_output_path, 
             frames_to_skip=frames_to_skip,
             frame_rate=frame_rate,
             show_trajectories=show_trajectories
-        ) 
+        )
+        
+        # If this is the first segment, initialize the combined video writer
+        if video_writer is None:
+            # Get video properties from first segment
+            cap = cv2.VideoCapture(str(video_file))
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            cap.release()
+            
+            # Use FFmpeg writer instead of cv2.VideoWriter
+            video_writer = FFmpegVideoWriter(
+                output_path=output_video_path,
+                fps=frame_rate,
+                frame_size=(width, height),
+                codec='libx264',
+                crf=23,  # Good quality
+                preset='medium'  # Balance of speed and compression
+            )
+            print(f"Initialized FFmpeg video writer: {width}x{height} at {frame_rate} FPS")
+        
+        # Read the segment video and append to combined video
+        segment_cap = cv2.VideoCapture(segment_output_path)
+        segment_frames_written = 0
+        
+        while True:
+            ret, frame = segment_cap.read()
+            if not ret:
+                break
+            frame = cv2.resize(frame, (width, height))
+            video_writer.write(frame)
+            segment_frames_written += 1
+            total_frames_written += 1
+        
+        segment_cap.release()
+        print(f"Completed {segment_dir.name}. Frames written: {segment_frames_written}")
+        
+        # Clean up temporary segment video
+        os.remove(segment_output_path)
     
     # Finalize video
     if video_writer:
@@ -272,16 +304,10 @@ def create_combined_video_from_segments(
     # except Exception as e:
     #     print(f"Warning: Failed to upload to S3: {e}")
 
-def create_segment_video_with_skip(
-        video_path: str, 
-        final_tracklets: dict, 
-        video_writer: cv2.VideoWriter,
-        width: int = None,
-        height: int = None,
-        frames_to_skip: int = 0, 
-        frame_rate: int = 15, 
-        show_trajectories: bool = False
-    ):
+
+def create_segment_video_with_skip(video_path: str, final_tracklets: dict, output_path: str, 
+                                 frames_to_skip: int = 0, frame_rate: int = 15, 
+                                 show_trajectories: bool = False):
     """
     Create a video for a single segment with frame skipping support.
     Based on create_final_tracklet_video but with frame skipping capability.
@@ -294,7 +320,10 @@ def create_segment_video_with_skip(
         frame_rate: Output video frame rate
         show_trajectories: Whether to show trajectory trails
     """
-    log.info(f"Merging segment tracklet video: {video_path} (skipping {frames_to_skip} frames)")
+    log.info(f"Creating segment tracklet video: {output_path} (skipping {frames_to_skip} frames)")
+    
+    # Ensure output directory exists
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
     
     # Open original video
     cap = cv2.VideoCapture(video_path)
@@ -303,14 +332,36 @@ def create_segment_video_with_skip(
         return
     
     # Get video properties
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)) if width is None else width
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) if height is None else height
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-
+    
+    # Create FFmpeg video writer
+    out = FFmpegVideoWriter(
+        output_path=output_path,
+        fps=frame_rate,
+        frame_size=(width, height),
+        codec='libx264',
+        crf=23,
+        preset='fast'  # Faster encoding for segment processing
+    )
+    
+    if not out.isOpened():
+        log.error(f"Failed to create FFmpeg writer for: {output_path}")
+        cap.release()
+        return
+    
     # Create visualizer
     visualizer = EllipseDetection(font_algorithm="smart")
 
-   # Progress bar for segment video creation
+    # Skip frames at the beginning
+    for _ in range(frames_to_skip):
+        ret, _ = cap.read()
+        if not ret:
+            break
+    
+    # Progress bar for segment video creation
     frames_to_process = total_frames - frames_to_skip
     progress = tqdm(
         total=frames_to_process,
@@ -319,37 +370,36 @@ def create_segment_video_with_skip(
         ncols=100
     )
     
-    frame_id = 0 
+    frame_id = frames_to_skip  # Start frame ID accounting for skipped frames
     frames_written = 0
     
     while True:
         ret, frame = cap.read()
         if not ret:
             break
-            
-        if frame_id < frames_to_skip:
-            continue
-        # Resize frame if needed
-        frame = cv2.resize(frame, (width, height))
+        
         # Draw final tracklets for current frame
-        visualizer.draw_final_tracklets(frame, final_tracklets, frame_id)        
+        visualizer.draw_final_tracklets(frame, final_tracklets, frame_id)
+        
         # Optionally draw trajectories
         if show_trajectories:
-            visualizer.draw_tracklet_trajectories(frame, final_tracklets, frame_id)        
+            visualizer.draw_tracklet_trajectories(frame, final_tracklets, frame_id)
+        
         # Add watermark/info
         info_text = f"Tracklets: {len(final_tracklets)} | Frame: {frame_id}"
         cv2.putText(frame, info_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
         
-        video_writer.write(frame)
+        out.write(frame)
         frame_id += 1
         frames_written += 1
         progress.update(1)
     
     # Cleanup
     cap.release()
+    out.release()
     progress.close()
     
-    log.info(f"Segment tracklet video merged: ({frames_written} frames)")
+    log.info(f"Segment tracklet video saved: {output_path} ({frames_written} frames)")
 
 
 def create_single_video_from_tracklets(video_path: str, tracklet_file: str, output_path: str, 
@@ -405,9 +455,15 @@ def draw_mot_tracklets_to_video_single(
         tracklets, img_folder, "", box_color_fn, thickness, font_scale, frame_rate
     )
     
-    # Create video writer
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')  
-    video_writer = cv2.VideoWriter(output_video_path, fourcc, frame_rate, (width, height))
+    # Create FFmpeg video writer
+    video_writer = FFmpegVideoWriter(
+        output_path=output_video_path,
+        fps=frame_rate,
+        frame_size=(width, height),
+        codec='libx264',
+        crf=23,
+        preset='medium'
+    )
 
     # Create visualizer
     visualizer = EllipseDetection()
@@ -505,6 +561,25 @@ def parse_args():
     parser.add_argument('--show_trajectories',
                         action='store_true',
                         help='Show trajectory trails in the output video.'
+                        )
+    
+    # FFmpeg-specific arguments
+    parser.add_argument('--codec',
+                        type=str,
+                        default='libx264',
+                        choices=['libx264', 'libx265', 'h264_nvenc', 'h264_qsv'],
+                        help='Video codec for encoding (default: libx264 for H.264).'
+                        )
+    parser.add_argument('--crf',
+                        type=int,
+                        default=23,
+                        help='Constant Rate Factor for quality (18-28, lower=better quality, default: 23).'
+                        )
+    parser.add_argument('--preset',
+                        type=str,
+                        default='medium',
+                        choices=['ultrafast', 'superfast', 'veryfast', 'faster', 'fast', 'medium', 'slow', 'slower', 'veryslow'],
+                        help='Encoding preset (speed vs compression, default: medium).'
                         )
     
     # Legacy arguments (kept for backward compatibility)

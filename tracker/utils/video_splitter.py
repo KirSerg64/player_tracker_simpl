@@ -69,7 +69,7 @@ class VideoSplitter:
         # Get video information
         video_info = self._get_video_info(self.input_video)
         original_fps = video_info['fps']
-        logger.info(f"Video duration: {video_info['duration']:.1f} seconds")
+        logger.info(f"Video duration: {video_info['duration']:.1f} seconds, shape: {video_info['width']}x{video_info['height']} pixels")
         logger.info(f"Original FPS: {original_fps:.2f}" if original_fps else "Original FPS: unknown")
         
         # Determine target FPS
@@ -95,6 +95,8 @@ class VideoSplitter:
             'segment_count': len(segment_info),
             'segment_duration': self.segment_duration,
             'overlap_duration': self.overlap,
+            'width': video_info['width'],
+            'height': video_info['height'],
             'segments': []
         }
         
@@ -125,6 +127,10 @@ class VideoSplitter:
             
             logger.info(f"Created segment {i+1}/{len(segment_info)}: {segment_path.name} "
                        f"({segment_elapsed:.1f}s, ETA: {eta_seconds/60:.1f}min)")
+
+            # For testing, limit to first few segments
+            # if i > 1:
+            #     break            
         
         total_elapsed = time.time() - start_time
         logger.info(f"Total processing time: {total_elapsed/60:.1f} minutes")
@@ -189,7 +195,9 @@ class VideoSplitter:
                 'size': int(info['format']['size']),
                 'fps': fps,
                 'video_stream': video_stream,
-                'format': info['format']
+                'format': info['format'],
+                'width': int(video_stream['coded_width']) if video_stream and 'coded_width' in video_stream else None,
+                'height': int(video_stream['coded_height']) if video_stream and 'coded_height' in video_stream else None
             }
         except subprocess.CalledProcessError as e:
             raise RuntimeError(f"Failed to get video info: {e}")

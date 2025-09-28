@@ -201,10 +201,11 @@ def find_closest_tracklets_mapping(
             end_id2tracklet = {i: track_id for track_id, i in end_tracklet2id.items()}
 
             # Update best mappings if we find better overlaps
-            for i in range(overlap_matrix.shape[0]):
+            for i in range(overlap_matrix.shape[0]):                
+                if len(overlap_matrix[i]) == 0:
+                    continue
                 start_id = start_id2tracklet[i]
-                max_overlap = np.max(overlap_matrix[i])
-                
+                max_overlap = np.max(overlap_matrix[i])                
                 # Only consider mappings with significant overlap
                 if max_overlap > max_overlap_threshold:  # You can adjust this threshold
                     if start_id not in best_overlaps or max_overlap > best_overlaps[start_id]:                        
@@ -342,8 +343,6 @@ def parse_args():
                         required=False,
                         help='Maximum end window for tracklet matching.'
                         )
-
-
     return parser.parse_args()
 
 
