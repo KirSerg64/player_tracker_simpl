@@ -16,7 +16,6 @@ import logging
 from tracker.visualization.video_creator import create_final_tracklet_video
 from tracker.visualization.players_drawer import EllipseDetection
 from tracklab.utils.cv2 import draw_text
-from tracker.utils.video_writer import FFmpegVideoWriter
 
 
 log = logging.getLogger(__name__)
@@ -328,6 +327,7 @@ def create_segment_video_with_skip(
             break
             
         if frame_id < frames_to_skip:
+            frame_id += 1
             continue
         # Resize frame if needed
         frame = cv2.resize(frame, (width, height))

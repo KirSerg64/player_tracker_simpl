@@ -238,8 +238,8 @@ class VideoSplitter:
         
         cmd = [
             'ffmpeg', '-y',  # Overwrite output files
-            '-i', str(video_path),
             '-ss', str(start_time),
+            '-i', str(video_path),            
             '-t', str(duration),
             '-c:v', self.video_codec,
             '-c:a', self.audio_codec,
