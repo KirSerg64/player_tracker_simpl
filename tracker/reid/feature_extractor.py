@@ -115,13 +115,14 @@ class FeatureExtractor(object):
 
         # Run ONNX inference on the padded batch
         features = self.session.run([self.output_name], {self.input_name: input_batch})[0]
-  
+        normed_featrures = features / np.linalg.norm(features, axis=1, keepdims=True)
+
         out_features = PipelineMessage(
             msg_type=MessageType.DATA,
             data={
                 'frame': input.data['frame'],
                 'detections': np.stack(input.data['detections']),
-                'features': features,
+                'features': normed_featrures,
             },
             metadata=input.metadata,
             timestamp=input.timestamp,

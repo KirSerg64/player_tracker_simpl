@@ -374,14 +374,15 @@ class FeatureExtractorTensorRT(object):
         # Extract only valid features (remove padding if applied)
         if self.enable_batch_padding and n_valid < self.batch_size:
             features = features[:n_valid]
-        
+
+        normed_features = features / np.linalg.norm(features, axis=1, keepdims=True)
         # Create output message
         out_features = PipelineMessage(
             msg_type=MessageType.DATA,
             data={
                 'frame': input.data['frame'],
                 'detections': np.stack(input.data['detections']),
-                'features': features,
+                'features': normed_features,
             },
             metadata=input.metadata,
             timestamp=input.timestamp,
