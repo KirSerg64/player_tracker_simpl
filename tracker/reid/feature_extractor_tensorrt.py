@@ -1,5 +1,6 @@
 from __future__ import absolute_import
-from typing import Dict
+from typing import Dict, List
+from xml.sax.handler import all_features
 import numpy as np
 import cv2
 import os
@@ -95,52 +96,6 @@ class FeatureExtractorTensorRT(object):
         # Scale factor for normalization
         self.scale = 1.0 / 255.0
 
-    # def _setup_cuda(self):
-    #     """Setup CUDA device and context."""
-    #     # Initialize CUDA driver
-    #     check_cuda_errors(cuda.cuInit(0))
-        
-    #     # Get device count
-    #     device_count = check_cuda_errors(cuda.cuDeviceGetCount())
-    #     if device_count == 0:
-    #         raise RuntimeError("No CUDA devices available")
-        
-    #     # Get device
-    #     self.cuda_device = check_cuda_errors(cuda.cuDeviceGet(0))  # Use device 0
-        
-    #     # Try to get existing CUDA context first
-    #     self._created_own_context = False
-    #     try:
-    #         # Check if there's already an active context
-    #         result = cuda.cuCtxGetCurrent()
-    #         if isinstance(result, tuple) and len(result) == 2:
-    #             error, current_context = result
-    #             if error == cuda.CUresult.CUDA_SUCCESS and current_context is not None:
-    #                 self.cuda_context = current_context
-    #                 log.info("Using existing CUDA context")
-    #             else:
-    #                 # No active context, create new one
-    #                 self.cuda_context = check_cuda_errors(
-    #                     cuda.cuCtxCreate(cuda.CUctx_flags.CU_CTX_SCHED_AUTO, self.cuda_device)
-    #                 )
-    #                 self._created_own_context = True
-    #                 log.info("Created new CUDA context on device 0")
-    #         else:
-    #             # Fallback: create new context
-    #             self.cuda_context = check_cuda_errors(
-    #                 cuda.cuCtxCreate(cuda.CUctx_flags.CU_CTX_SCHED_AUTO, self.cuda_device)
-    #             )
-    #             self._created_own_context = True
-    #             log.info("Created fallback CUDA context on device 0")
-    #     except Exception as e:
-    #         # Final fallback: create new context
-    #         log.warning(f"Context detection failed: {e}, creating new context")
-    #         self.cuda_context = check_cuda_errors(
-    #             cuda.cuCtxCreate(cuda.CUctx_flags.CU_CTX_SCHED_AUTO, self.cuda_device)
-    #         )
-    #         self._created_own_context = True
-    #         log.info("Created emergency fallback CUDA context on device 0")
-
     def _load_engine(self):
         """Load TensorRT engine from file."""
         if not os.path.isfile(self.engine_path):
@@ -232,8 +187,8 @@ class FeatureExtractorTensorRT(object):
     def _preprocess(
         self,
         image: np.ndarray, 
-        detections: list[Dict],
-    ) -> np.ndarray:
+        detections: List[Dict],
+    ) -> List[np.ndarray]:
         """
         Crop preprocessing optimized for TensorRT inference.
 
@@ -277,12 +232,7 @@ class FeatureExtractorTensorRT(object):
             
             # Step 4: CHW conversion (no copy)
             batch[i] = normalized.transpose(2, 0, 1)  # (H, W, C) -> (C, H, W)
-        
-        # If padding was applied, duplicate the last valid sample
-        if self.enable_batch_padding and n_crops < self.batch_size:
-            for i in range(n_crops, self.batch_size):
-                batch[i] = batch[n_crops - 1]
-           
+
         return batch, n_crops
 
     def input_spec(self):
@@ -365,15 +315,22 @@ class FeatureExtractorTensorRT(object):
         # if not self.warmup_done:
         #     self._warmup()
         
-        # Preprocess input
-        input_batch, n_valid = self._preprocess(input.data['frame'], input.data['detections'])
+        detections = input.data['detections']
+        n_detections = len(detections)
         
         # Run TensorRT inference
-        features = self._inference(input_batch)
-        
-        # Extract only valid features (remove padding if applied)
-        if self.enable_batch_padding and n_valid < self.batch_size:
-            features = features[:n_valid]
+        # features = self._inference(input_batch)
+        all_features = []
+        for i in range(0, n_detections, self.batch_size):
+            batch_detections = detections[i:i + self.batch_size]            
+            # Preprocess this batch
+            input_batch = self._preprocess(input.data['frame'], batch_detections)            
+            # Run inference
+            batch_features = self._inference(input_batch)
+            all_features.append(batch_features)
+    
+        # Concatenate all batch results
+        features = np.concatenate(all_features, axis=0) if len(all_features) > 1 else all_features[0]
 
         normed_features = features / np.linalg.norm(features, axis=1, keepdims=True)
         # Create output message
