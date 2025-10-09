@@ -322,9 +322,9 @@ class FeatureExtractorTensorRT(object):
         # features = self._inference(input_batch)
         all_features = []
         for i in range(0, n_detections, self.batch_size):
-            batch_detections = detections[i:i + self.batch_size]            
+            batch_detections = np.stack(detections[i:i + self.batch_size])
             # Preprocess this batch
-            input_batch = self._preprocess(input.data['frame'], batch_detections)            
+            input_batch, n_crops = self._preprocess(input.data['frame'], batch_detections)            
             # Run inference
             batch_features = self._inference(input_batch)
             all_features.append(batch_features)
