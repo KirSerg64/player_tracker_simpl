@@ -559,7 +559,7 @@ class TrackletsRefiner():
             log.info(f"Merging tracklets - before: {len(split_tracklets)}")
             if self.use_batched_merge:
                 refined_tracklets = self._merge_tracklets_batched(
-                    split_tracklets, self.batch_size, max_x_range, max_y_range
+                    split_tracklets, max_x_range, max_y_range
                 )
             else:
                 refined_tracklets = self._merge_tracklets(
@@ -604,7 +604,6 @@ class TrackletsRefiner():
                 log.debug(f"Using GPU-accelerated batched merge for {len(tracklets_dict)} tracklets")
                 return self.merge_tracklets_batched(
                     tracklets_dict,
-                    # seq2Dist={},  # Empty dict as we're not using it for visualization
                     batch_size=self.batch_size,
                     max_x_range=max_x_range,
                     max_y_range=max_y_range,
@@ -614,7 +613,6 @@ class TrackletsRefiner():
                 # Use CPU version
                 return self.merge_tracklets_batched(
                     tracklets_dict,
-                    seq2Dist={},  # Empty dict as we're not using it for visualization
                     batch_size=self.batch_size,
                     max_x_range=max_x_range,
                     max_y_range=max_y_range,
