@@ -201,7 +201,7 @@ def get_distance_matrix(tid2track):
     
     # Check if we can use PyTorch batch processing
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    use_batch_processing = torch.cuda.is_available() and n_tracks > 10
+    use_batch_processing = False #torch.cuda.is_available() and n_tracks > 10
     
     if use_batch_processing:
         logger.info(f"Using PyTorch batch processing for {n_tracks} tracklets on {device}")
@@ -297,6 +297,79 @@ def get_distance_matrix(tid2track):
 
 
 def get_distance(track1_id, track2_id, track1, track2):
+    """
+    Calculates the cosine distance between two tracks using PyTorch for efficient computation.
+    Enhanced with better memory management and error handling.
+
+    Args:
+        track1_id (int): ID of the first track.
+        track2_id (int): ID of the second track.
+        track1 (Tracklet): First track object.
+        track2 (Tracklet): Second track object.
+
+    Returns:
+        float: Cosine distance between the two tracks.
+    """
+    assert track1_id == track1.track_id and track2_id == track2.track_id   # debug line
+    
+    # Check temporal overlap first (fastest check)
+    if track1_id != track2_id:
+        doesOverlap = bool(set(track1.times) & set(track2.times))
+        if doesOverlap:
+            return 1.0  # Maximum distance for overlapping tracks
+    
+    # Check if both tracks have features
+    if not track1.features or not track2.features:
+        return 1.0
+    
+    try:
+        # Use PyTorch for efficient cosine distance computation
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        
+        with torch.no_grad():  # Disable gradient computation for inference
+            # Convert features to tensors
+            track1_features = torch.tensor(np.stack(track1.features), dtype=torch.float32, device=device)
+            track2_features = torch.tensor(np.stack(track2.features), dtype=torch.float32, device=device)
+            
+            # Normalize features for cosine similarity
+            track1_normalized = torch.nn.functional.normalize(track1_features, p=2, dim=1)
+            track2_normalized = torch.nn.functional.normalize(track2_features, p=2, dim=1)
+            
+            # Compute cosine similarity matrix efficiently
+            cos_sim_matrix = torch.mm(track1_normalized, track2_normalized.t())
+            
+            # Convert to cosine distance
+            cos_dist_matrix = 1 - cos_sim_matrix
+            
+            # Compute mean distance
+            mean_distance = torch.mean(cos_dist_matrix)
+            
+            return float(mean_distance)
+            
+    except Exception as e:
+        logger.warning(f"PyTorch distance computation failed for tracks {track1_id}, {track2_id}: {e}")
+        
+        # Fallback to CPU numpy computation
+        try:
+            track1_features_np = np.stack(track1.features)
+            track2_features_np = np.stack(track2.features)
+            
+            # Normalize features
+            track1_norm = track1_features_np / np.linalg.norm(track1_features_np, axis=1, keepdims=True)
+            track2_norm = track2_features_np / np.linalg.norm(track2_features_np, axis=1, keepdims=True)
+            
+            # Compute cosine similarity
+            cos_sim = np.dot(track1_norm, track2_norm.T)
+            cos_dist = 1 - cos_sim
+            
+            return float(np.mean(cos_dist))
+            
+        except Exception as e2:
+            logger.error(f"Both PyTorch and numpy distance computation failed: {e2}")
+            return 1.0  # Return maximum distance on failure
+
+
+def get_distance_voting(track1_id, track2_id, track1, track2):
     """
     Calculates the cosine distance between two tracks using PyTorch for efficient computation.
     Enhanced with better memory management and error handling.
@@ -574,6 +647,48 @@ def merge_tracklets(tracklets, max_x_range=None, max_y_range=None, merge_dist_th
     
     logger.info(f"Merging completed. Performed {merges_performed} merges using {'GPU' if use_gpu_matrix else 'CPU'} optimizations.")
     return tracklets
+
+
+def merge_tracklets_batched(
+    tracklets, 
+    seq2Dist,
+    batch_size=50,
+    seq_name=None,
+    max_x_range=None,
+    max_y_range=None,
+    merge_dist_thres=None
+):
+    """
+    Merges tracklets in batches based on a distance threshold.
+    
+    Parameters:
+    tracklets (dict): A dictionary of tracklets where keys are tracklet IDs and values are tracklet objects.
+    seq2Dist (dict): A dictionary to store distance matrices for sequences.
+    batch_size (int): The size of the batches to process at a time.
+    seq_name (str): The name of the sequence being processed.
+    max_x_range (float): Maximum allowed distance in the x direction for merging.
+    max_y_range (float): Maximum allowed distance in the y direction for merging.
+    merge_dist_thres (float): Distance threshold below which tracklets should be merged.
+    
+    Returns:
+    dict: The merged tracklets.
+    """
+    temp_tracklets = {}
+    tracklet_items = list(tracklets.items())
+
+    print(f"Batch size: {batch_size}")
+    for i in range(0, len(tracklet_items), batch_size):
+        batch_tracklets = dict(tracklet_items[i:i+batch_size])
+        print(f"Processing batch from index {i} to {min(i+batch_size - 1, len(tracklet_items) - 1)}")
+        
+        merged_batch_tracklets= merge_tracklets(batch_tracklets, merge_dist_thres, max_x_range, max_y_range)
+        print(f"{len(merged_batch_tracklets)} of {batch_size} tracklets left after merging.")
+        temp_tracklets.update(merged_batch_tracklets)
+    print(f"Merging {len(temp_tracklets)} tracklets after batched processing.")
+    print()
+    merged_tracklets = merge_tracklets(temp_tracklets, merge_dist_thres, max_x_range, max_y_range)
+    
+    return merged_tracklets
 
 
 def detect_id_switch(embs, eps=None, min_samples=None, max_clusters=None):

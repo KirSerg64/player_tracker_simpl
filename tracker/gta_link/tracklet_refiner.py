@@ -32,12 +32,12 @@ from tracker.gta_link.utils.Tracklet import Tracklet
 #     get_spatial_constraints
 # )
 
-# from tracker.gta_link.utils.refine_tracklets_batched import (
-#     split_tracklets,
-#     merge_tracklets,
-#     merge_tracklets_batched,
-#     merge_tracklets_batched_parallel_processes
-# )
+from tracker.gta_link.utils.refine_tracklets_batched import (
+    split_tracklets,
+    merge_tracklets,
+    merge_tracklets_batched,
+    merge_tracklets_batched_parallel_processes
+)
 
 # Check if CuPy is available (but don't import yet)
 def _check_cupy_available():
@@ -175,7 +175,8 @@ class TrackletsRefiner():
                     detect_id_switch,
                     get_spatial_constraints,
                     split_tracklets,
-                    merge_tracklets,   
+                    merge_tracklets,
+                    merge_tracklets_batched
                 )
                 
                 # Assign GPU functions
@@ -187,7 +188,7 @@ class TrackletsRefiner():
                 self.split_tracklets = split_tracklets
                 self.merge_tracklets = merge_tracklets
                 # self.merge_tracklets_gpu = merge_tracklets_gpu
-                # self.merge_tracklets_batched = refine_tracklets_torch
+                self.merge_tracklets_batched = merge_tracklets_batched
                 # self.benchmark_gpu_vs_cpu = benchmark_gpu_vs_cpu
                 # self.clear_caches = clear_caches
                 
@@ -647,273 +648,6 @@ class TrackletsRefiner():
         except Exception as e:
             log.error(f"Error in merge_tracklets: {e}")
             return tracklets_dict
-    
-    def _create_sequential_track_id_mapping(self, original_tracklets: Dict, refined_tracklets: Dict) -> Dict:
-        """
-        Create mapping from original track IDs to sequential IDs (1.0, 2.0, 3.0, ...).
-        
-        This is a simple mapping strategy that assigns sequential floating-point IDs
-        starting from 1.0 to all original tracklets, regardless of the refined tracklets.
-        
-        Args:
-            original_tracklets (Dict): Dictionary of original tracklets
-            refined_tracklets (Dict): Dictionary of refined tracklets (not used in this strategy)
-            
-        Returns:
-            Dict: Mapping from original track IDs to sequential IDs
-        """
-        mapping = {}
-        
-        try:
-            # Sort original tracklet IDs for consistent ordering
-            sorted_orig_ids = sorted(refined_tracklets.keys())
-            
-            # Assign sequential IDs starting from 1.0
-            for i, orig_id in enumerate(sorted_orig_ids, start=1):
-                mapping[orig_id] = float(i)
-            
-            log.debug(f"Created sequential mapping: {len(mapping)} tracklets -> IDs 1.0 to {len(mapping)}.0")
-            
-        except Exception as e:
-            log.error(f"Error creating sequential track ID mapping: {e}")
-            # Fallback: identity mapping
-            mapping = {orig_id: orig_id for orig_id in original_tracklets.keys()}
-        
-        return mapping
-    
-    def _create_track_id_mapping(self, original_tracklets: Dict, refined_tracklets: Dict) -> Dict:
-        """
-        Create mapping from original track IDs to refined track IDs.
-        
-        Uses a more sophisticated approach considering:
-        1. Temporal overlap
-        2. Spatial similarity (bbox overlap)
-        3. Feature similarity (if available)
-        4. One-to-one assignment with conflict resolution
-        """
-        mapping = {}
-        
-        try:
-            # Calculate similarity matrix between original and refined tracklets
-            similarity_matrix = self._calculate_tracklet_similarity_matrix(
-                original_tracklets, refined_tracklets
-            )
-            
-            # Use Hungarian algorithm or greedy assignment with conflict resolution
-            mapping = self._assign_tracklets_with_conflicts(
-                original_tracklets, refined_tracklets, similarity_matrix
-            )
-            
-            log.debug(f"Created tracklet mapping with {len(mapping)} assignments")
-            
-        except Exception as e:
-            log.error(f"Error creating track ID mapping: {e}")
-            # Fallback: identity mapping
-            mapping = {orig_id: orig_id for orig_id in original_tracklets.keys()}
-        
-        return mapping
-    
-    def _calculate_tracklet_similarity_matrix(self, original_tracklets: Dict, refined_tracklets: Dict) -> Dict:
-        """
-        Calculate similarity matrix between original and refined tracklets.
-        
-        Returns:
-            Dict with structure: {(orig_id, refined_id): similarity_score}
-        """
-        similarity_matrix = {}
-        
-        for orig_id, orig_tracklet in original_tracklets.items():
-            for refined_id, refined_tracklet in refined_tracklets.items():
-                similarity = self._calculate_tracklet_similarity(orig_tracklet, refined_tracklet)
-                similarity_matrix[(orig_id, refined_id)] = similarity
-        
-        return similarity_matrix
-    
-    def _calculate_tracklet_similarity(self, tracklet1, tracklet2) -> float:
-        """
-        Calculate similarity between two tracklets using multiple factors.
-        
-        Returns:
-            float: Similarity score between 0 and 1
-        """
-        # 1. Temporal overlap (most important)
-        times1 = set(tracklet1.times) if hasattr(tracklet1, 'times') else set()
-        times2 = set(tracklet2.times) if hasattr(tracklet2, 'times') else set()
-        
-        if not times1 or not times2:
-            return 0.0
-        
-        temporal_overlap = len(times1.intersection(times2))
-        temporal_union = len(times1.union(times2))
-        temporal_score = temporal_overlap / temporal_union if temporal_union > 0 else 0.0
-        
-        # If no temporal overlap, similarity is 0
-        if temporal_overlap == 0:
-            return 0.0
-        
-        # 2. Spatial similarity (bbox overlap in overlapping frames)
-        spatial_score = self._calculate_spatial_similarity(tracklet1, tracklet2, times1.intersection(times2))
-        
-        # 3. Feature similarity (if features are available)
-        feature_score = self._calculate_feature_similarity(tracklet1, tracklet2)
-        
-        # Weighted combination
-        weights = {
-            'temporal': 0.5,
-            'spatial': 0.3,
-            'feature': 0.2
-        }
-        
-        total_score = (
-            weights['temporal'] * temporal_score +
-            weights['spatial'] * spatial_score +
-            weights['feature'] * feature_score
-        )
-        
-        return total_score
-    
-    def _calculate_spatial_similarity(self, tracklet1, tracklet2, common_times) -> float:
-        """Calculate spatial similarity based on bbox overlap in common frames."""
-        if not common_times:
-            return 0.0
-        
-        try:
-            bbox_overlaps = []
-            
-            for time in common_times:
-                # Find bboxes for this time in both tracklets
-                bbox1 = self._get_bbox_at_time(tracklet1, time)
-                bbox2 = self._get_bbox_at_time(tracklet2, time)
-                
-                if bbox1 is not None and bbox2 is not None:
-                    overlap = self._calculate_bbox_iou(bbox1, bbox2)
-                    bbox_overlaps.append(overlap)
-            
-            return np.mean(bbox_overlaps) if bbox_overlaps else 0.0
-            
-        except Exception as e:
-            log.debug(f"Error calculating spatial similarity: {e}")
-            return 0.0
-    
-    def _get_bbox_at_time(self, tracklet, time):
-        """Get bbox for tracklet at specific time."""
-        try:
-            if hasattr(tracklet, 'times') and hasattr(tracklet, 'bboxes'):
-                if time in tracklet.times:
-                    idx = tracklet.times.index(time)
-                    if idx < len(tracklet.bboxes):
-                        return tracklet.bboxes[idx]
-        except:
-            pass
-        return None
-    
-    def _calculate_bbox_iou(self, bbox1, bbox2) -> float:
-        """Calculate IoU between two bboxes in [l, t, w, h] format."""
-        try:
-            # Convert to [x1, y1, x2, y2]
-            l1, t1, w1, h1 = bbox1[:4]
-            l2, t2, w2, h2 = bbox2[:4]
-            
-            x1_1, y1_1, x2_1, y2_1 = l1, t1, l1 + w1, t1 + h1
-            x1_2, y1_2, x2_2, y2_2 = l2, t2, l2 + w2, t2 + h2
-            
-            # Calculate intersection
-            xi1 = max(x1_1, x1_2)
-            yi1 = max(y1_1, y1_2)
-            xi2 = min(x2_1, x2_2)
-            yi2 = min(y2_1, y2_2)
-            
-            if xi2 <= xi1 or yi2 <= yi1:
-                return 0.0
-            
-            intersection = (xi2 - xi1) * (yi2 - yi1)
-            
-            # Calculate union
-            area1 = w1 * h1
-            area2 = w2 * h2
-            union = area1 + area2 - intersection
-            
-            return intersection / union if union > 0 else 0.0
-            
-        except:
-            return 0.0
-    
-    def _calculate_feature_similarity(self, tracklet1, tracklet2) -> float:
-        """Calculate feature similarity using cosine similarity."""
-        try:
-            if hasattr(tracklet1, 'features') and hasattr(tracklet2, 'features'):
-                features1 = tracklet1.features
-                features2 = tracklet2.features
-                
-                if features1 and features2:
-                    # Use average feature vectors
-                    avg_feat1 = np.mean(features1, axis=0)
-                    avg_feat2 = np.mean(features2, axis=0)
-                    
-                    # Cosine similarity
-                    dot_product = np.dot(avg_feat1, avg_feat2)
-                    norm1 = np.linalg.norm(avg_feat1)
-                    norm2 = np.linalg.norm(avg_feat2)
-                    
-                    if norm1 > 0 and norm2 > 0:
-                        return dot_product / (norm1 * norm2)
-            
-            return 0.0
-            
-        except Exception as e:
-            log.debug(f"Error calculating feature similarity: {e}")
-            return 0.0
-    
-    def _assign_tracklets_with_conflicts(self, original_tracklets: Dict, refined_tracklets: Dict, 
-                                       similarity_matrix: Dict) -> Dict:
-        """
-        Assign tracklets resolving conflicts using a greedy approach with thresholding.
-        
-        Alternative approaches:
-        1. Hungarian algorithm for optimal assignment
-        2. Greedy with conflict resolution (implemented here)
-        3. Many-to-one mapping for merged tracklets
-        """
-        mapping = {}
-        used_refined_ids = set()
-        min_similarity_threshold = 0.1  # Minimum similarity to create mapping
-        
-        # Sort original tracklets by their best similarity score (descending)
-        orig_scores = {}
-        for orig_id in original_tracklets.keys():
-            best_score = max(
-                similarity_matrix.get((orig_id, ref_id), 0.0) 
-                for ref_id in refined_tracklets.keys()
-            )
-            orig_scores[orig_id] = best_score
-        
-        sorted_orig_ids = sorted(orig_scores.keys(), key=lambda x: orig_scores[x], reverse=True)
-        
-        # Assign each original tracklet to best available refined tracklet
-        for orig_id in sorted_orig_ids:
-            best_refined_id = None
-            best_similarity = min_similarity_threshold
-            
-            for refined_id in refined_tracklets.keys():
-                similarity = similarity_matrix.get((orig_id, refined_id), 0.0)
-                
-                # For one-to-one mapping, skip already used refined tracklets
-                # Comment out next line to allow many-to-one mapping
-                if refined_id in used_refined_ids:
-                    continue
-                
-                if similarity > best_similarity:
-                    best_similarity = similarity
-                    best_refined_id = refined_id
-            
-            if best_refined_id is not None:
-                mapping[orig_id] = best_refined_id
-                used_refined_ids.add(best_refined_id)
-            else:
-                # No good match found, keep original ID
-                mapping[orig_id] = orig_id
-        
-        return mapping
     
 
     def _update_tracklet_ids(self, tracklets: Dict) -> Dict:
