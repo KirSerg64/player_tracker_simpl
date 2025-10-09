@@ -651,9 +651,7 @@ def merge_tracklets(tracklets, max_x_range=None, max_y_range=None, merge_dist_th
 
 def merge_tracklets_batched(
     tracklets, 
-    seq2Dist,
     batch_size=50,
-    seq_name=None,
     max_x_range=None,
     max_y_range=None,
     merge_dist_thres=None
@@ -663,7 +661,6 @@ def merge_tracklets_batched(
     
     Parameters:
     tracklets (dict): A dictionary of tracklets where keys are tracklet IDs and values are tracklet objects.
-    seq2Dist (dict): A dictionary to store distance matrices for sequences.
     batch_size (int): The size of the batches to process at a time.
     seq_name (str): The name of the sequence being processed.
     max_x_range (float): Maximum allowed distance in the x direction for merging.
@@ -681,12 +678,11 @@ def merge_tracklets_batched(
         batch_tracklets = dict(tracklet_items[i:i+batch_size])
         print(f"Processing batch from index {i} to {min(i+batch_size - 1, len(tracklet_items) - 1)}")
         
-        merged_batch_tracklets= merge_tracklets(batch_tracklets, merge_dist_thres, max_x_range, max_y_range)
+        merged_batch_tracklets= merge_tracklets(batch_tracklets, max_x_range, max_y_range,  merge_dist_thres)
         print(f"{len(merged_batch_tracklets)} of {batch_size} tracklets left after merging.")
         temp_tracklets.update(merged_batch_tracklets)
     print(f"Merging {len(temp_tracklets)} tracklets after batched processing.")
-    print()
-    merged_tracklets = merge_tracklets(temp_tracklets, merge_dist_thres, max_x_range, max_y_range)
+    merged_tracklets = merge_tracklets(temp_tracklets, max_x_range, max_y_range, merge_dist_thres)
     
     return merged_tracklets
 
