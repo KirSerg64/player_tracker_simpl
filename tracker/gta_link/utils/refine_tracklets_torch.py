@@ -185,7 +185,7 @@ def display_Dist(Dist, seq_name=None, isMerged=False, isSplit=False):
     plt.show()
 
 
-def get_distance_matrix(tid2track):
+def get_distance_matrix(tid2track, use_voting_distance: bool = True):
     """
     Constructs and returns a distance matrix between all tracklets based on overlapping times and feature similarities.
     Uses PyTorch for efficient batch computation when available.
@@ -285,21 +285,27 @@ def get_distance_matrix(tid2track):
     
     if not use_batch_processing:
         # Original implementation
-        for i, (track1_id, track1) in enumerate(tid2track.items()):
-            assert len(track1.times) == len(track1.bboxes)
-            for j, (track2_id, track2) in enumerate(tid2track.items()):
-                if j < i:
-                    Dist[i][j] = Dist[j][i]
-                else:
-                    Dist[i][j] = get_distance(track1_id, track2_id, track1, track2)
-    
+        if not use_voting_distance:
+            for i, (track1_id, track1) in enumerate(tid2track.items()):
+                assert len(track1.times) == len(track1.bboxes)
+                for j, (track2_id, track2) in enumerate(tid2track.items()):
+                    if j < i:
+                        Dist[i][j] = Dist[j][i]
+                    else:
+                        Dist[i][j] = get_distance(track1_id, track2_id, track1, track2)
+        else:
+            for i, (track1_id, track1) in enumerate(tid2track.items()):
+                assert len(track1.times) == len(track1.bboxes)
+                for j, (track2_id, track2) in enumerate(tid2track.items()):
+                    if j < i:
+                        Dist[i][j] = Dist[j][i]
+                    else:
+                        Dist[i][j] = get_distance_voting(track1_id, track2_id, track1, track2, threshold=0.2)
     return Dist
-
 
 def get_distance(track1_id, track2_id, track1, track2):
     """
     Calculates the cosine distance between two tracks using PyTorch for efficient computation.
-    Enhanced with better memory management and error handling.
 
     Args:
         track1_id (int): ID of the first track.
@@ -311,68 +317,33 @@ def get_distance(track1_id, track2_id, track1, track2):
         float: Cosine distance between the two tracks.
     """
     assert track1_id == track1.track_id and track2_id == track2.track_id   # debug line
-    
-    # Check temporal overlap first (fastest check)
-    if track1_id != track2_id:
-        doesOverlap = bool(set(track1.times) & set(track2.times))
-        if doesOverlap:
-            return 1.0  # Maximum distance for overlapping tracks
-    
-    # Check if both tracks have features
-    if not track1.features or not track2.features:
-        return 1.0
-    
-    try:
-        # Use PyTorch for efficient cosine distance computation
+    doesOverlap = False
+    if (track1_id != track2_id):
+        doesOverlap = set(track1.times) & set(track2.times)
+    if doesOverlap:
+        return 1                # make the cosine distance between two tracks maximum, max = 1
+    else:
+        # calculate cosine distance between two tracks based on features
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        track1_features_tensor = torch.tensor(np.stack(track1.features), dtype=torch.float32).to(device)
+        track2_features_tensor = torch.tensor(np.stack(track2.features), dtype=torch.float32).to(device)
+        count1 = len(track1_features_tensor)
+        count2 = len(track2_features_tensor)
+
+        cos_sim_Numerator = torch.matmul(track1_features_tensor, track2_features_tensor.T)
+        track1_features_dist = torch.norm(track1_features_tensor, p=2, dim=1, keepdim=True)
+        track2_features_dist = torch.norm(track2_features_tensor, p=2, dim=1, keepdim=True)
+        cos_sim_Denominator = torch.matmul(track1_features_dist, track2_features_dist.T)
+        cos_Dist = 1 - cos_sim_Numerator / cos_sim_Denominator
         
-        with torch.no_grad():  # Disable gradient computation for inference
-            # Convert features to tensors
-            track1_features = torch.tensor(np.stack(track1.features), dtype=torch.float32, device=device)
-            track2_features = torch.tensor(np.stack(track2.features), dtype=torch.float32, device=device)
-            
-            # Normalize features for cosine similarity
-            track1_normalized = torch.nn.functional.normalize(track1_features, p=2, dim=1)
-            track2_normalized = torch.nn.functional.normalize(track2_features, p=2, dim=1)
-            
-            # Compute cosine similarity matrix efficiently
-            cos_sim_matrix = torch.mm(track1_normalized, track2_normalized.t())
-            
-            # Convert to cosine distance
-            cos_dist_matrix = 1 - cos_sim_matrix
-            
-            # Compute mean distance
-            mean_distance = torch.mean(cos_dist_matrix)
-            
-            return float(mean_distance)
-            
-    except Exception as e:
-        logger.warning(f"PyTorch distance computation failed for tracks {track1_id}, {track2_id}: {e}")
-        
-        # Fallback to CPU numpy computation
-        try:
-            track1_features_np = np.stack(track1.features)
-            track2_features_np = np.stack(track2.features)
-            
-            # Normalize features
-            track1_norm = track1_features_np / np.linalg.norm(track1_features_np, axis=1, keepdims=True)
-            track2_norm = track2_features_np / np.linalg.norm(track2_features_np, axis=1, keepdims=True)
-            
-            # Compute cosine similarity
-            cos_sim = np.dot(track1_norm, track2_norm.T)
-            cos_dist = 1 - cos_sim
-            
-            return float(np.mean(cos_dist))
-            
-        except Exception as e2:
-            logger.error(f"Both PyTorch and numpy distance computation failed: {e2}")
-            return 1.0  # Return maximum distance on failure
+        total_cos_Dist = cos_Dist.sum()
+        result = total_cos_Dist / (count1 * count2)
+        return result
 
 
-def get_distance_voting(track1_id, track2_id, track1, track2):
+def get_distance_voting(track1_id, track2_id, track1, track2, threshold: float = 0.2):
     """
     Calculates the cosine distance between two tracks using PyTorch for efficient computation.
-    Enhanced with better memory management and error handling.
 
     Args:
         track1_id (int): ID of the first track.
@@ -384,62 +355,33 @@ def get_distance_voting(track1_id, track2_id, track1, track2):
         float: Cosine distance between the two tracks.
     """
     assert track1_id == track1.track_id and track2_id == track2.track_id   # debug line
-    
-    # Check temporal overlap first (fastest check)
-    if track1_id != track2_id:
-        doesOverlap = bool(set(track1.times) & set(track2.times))
-        if doesOverlap:
-            return 1.0  # Maximum distance for overlapping tracks
-    
-    # Check if both tracks have features
-    if not track1.features or not track2.features:
-        return 1.0
-    
-    try:
-        # Use PyTorch for efficient cosine distance computation
+    doesOverlap = False
+    if (track1_id != track2_id):
+        doesOverlap = set(track1.times) & set(track2.times)
+    if doesOverlap:
+        return 1                # make the cosine distance between two tracks maximum, max = 1
+    else:
+        # calculate cosine distance between two tracks based on features
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        track1_features_tensor = torch.tensor(np.stack(track1.features), dtype=torch.float32).to(device)
+        track2_features_tensor = torch.tensor(np.stack(track2.features), dtype=torch.float32).to(device)
+        count1 = len(track1_features_tensor)
+        count2 = len(track2_features_tensor)
+
+        cos_sim_Numerator = torch.matmul(track1_features_tensor, track2_features_tensor.T)
+        track1_features_dist = torch.norm(track1_features_tensor, p=2, dim=1, keepdim=True)
+        track2_features_dist = torch.norm(track2_features_tensor, p=2, dim=1, keepdim=True)
+        cos_sim_Denominator = torch.matmul(track1_features_dist, track2_features_dist.T)
+        cos_Dist = 1 - cos_sim_Numerator / cos_sim_Denominator
         
-        with torch.no_grad():  # Disable gradient computation for inference
-            # Convert features to tensors
-            track1_features = torch.tensor(np.stack(track1.features), dtype=torch.float32, device=device)
-            track2_features = torch.tensor(np.stack(track2.features), dtype=torch.float32, device=device)
-            
-            # Normalize features for cosine similarity
-            track1_normalized = torch.nn.functional.normalize(track1_features, p=2, dim=1)
-            track2_normalized = torch.nn.functional.normalize(track2_features, p=2, dim=1)
-            
-            # Compute cosine similarity matrix efficiently
-            cos_sim_matrix = torch.mm(track1_normalized, track2_normalized.t())
-            
-            # Convert to cosine distance
-            cos_dist_matrix = 1 - cos_sim_matrix
-            
-            # Compute mean distance
-            mean_distance = torch.mean(cos_dist_matrix)
-            
-            return float(mean_distance)
-            
-    except Exception as e:
-        logger.warning(f"PyTorch distance computation failed for tracks {track1_id}, {track2_id}: {e}")
+        # Count similar pairs
+        similar_count = (cos_Dist < threshold).sum().item()
+        total_pairs = track1_features_tensor.shape[0] * track2_features_tensor.shape[0]
+        match_ratio = similar_count / count1 / count2 if total_pairs > 0 else 0
         
-        # Fallback to CPU numpy computation
-        try:
-            track1_features_np = np.stack(track1.features)
-            track2_features_np = np.stack(track2.features)
-            
-            # Normalize features
-            track1_norm = track1_features_np / np.linalg.norm(track1_features_np, axis=1, keepdims=True)
-            track2_norm = track2_features_np / np.linalg.norm(track2_features_np, axis=1, keepdims=True)
-            
-            # Compute cosine similarity
-            cos_sim = np.dot(track1_norm, track2_norm.T)
-            cos_dist = 1 - cos_sim
-            
-            return float(np.mean(cos_dist))
-            
-        except Exception as e2:
-            logger.error(f"Both PyTorch and numpy distance computation failed: {e2}")
-            return 1.0  # Return maximum distance on failure
+        # Convert to distance: high similarity → low distance
+        result = 1.0 - match_ratio
+        return result
 
 
 def check_spatial_constraints(trk_1, trk_2, max_x_range, max_y_range):

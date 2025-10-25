@@ -81,6 +81,9 @@ class FeatureExtractor(object):
         Returns:
             Batch tensor (N, C, H, W) float32
         """
+        #convert image BGR -> RGB
+        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
         h_out, w_out = self.image_size
         n_crops = len(detections)
         
@@ -90,7 +93,7 @@ class FeatureExtractor(object):
         for i, detection in enumerate(detections):       
             # Step 1: Crop with slicing (view only)
             (l, t, r, b) = detection[:4].astype(int).tolist()  # (x1, y1, x2, y2)
-            crop = image[t:b, l:r]
+            crop = image_rgb[t:b, l:r]
             # Step 2: Resize directly to target
             # - Use INTER_LINEAR for best speed/quality tradeoff
             # - Convert to RGB during resize
