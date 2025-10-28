@@ -1,0 +1,27 @@
+# DINOv3 Feature Extractor Configuration
+# 
+# This configuration uses Meta's DINOv3-base model for person re-identification.
+# DINOv3 provides robust 768-dimensional features learned via self-supervised learning.
+#
+# Key Features:
+# - 224x224 square input (standard for DINOv3)
+# - Pad-to-square preprocessing (preserves aspect ratio)
+# - ImageNet normalization
+# - 768-dim feature vectors
+#
+# Model Export:
+#   First, export the model to ONNX using: python scripts/export_dinov3_to_onnx.py
+#   Or enable PyTorch fallback mode for testing (slower, requires transformers library)
+
+_target_: tracker.reid.feature_extractor_automodel.FeatureExtractorAutoModel
+
+batch_size: 8
+
+cfg:
+  # Model configuration
+  model_download_id: 'facebook/dinov3-vitb16-pretrain-lvd1689m'  # HuggingFace model ID
+  model_preprocessor_config: '${model_dir}/reid/dinov3/preprocessor_config.json'  # Preprocessor config file
+  model_config: '${model_dir}/reid/dinov3/dinov3-vitb16-config.json'  # Model config file
+  model_path: '${model_dir}/reid/dinov3/dinov3-vitb16-pretrain-lvd1689m.pt'  # Path to local model
+  image_size: [224, 224]  # DINOv3 expects square inputs (224 or 384)
+  output_features: "cls_token"  # Output feature to use (e.g., 'cls_token', 'mean', etc.)
