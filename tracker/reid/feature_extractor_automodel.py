@@ -76,12 +76,6 @@ class FeatureExtractorAutoModel(object):
             )
             self.model.compile(mode="max-autotune", fullgraph=True)  
             self.model.eval()
-        
-        if self.session is None and self.torch_model is None:
-            raise RuntimeError(
-                f"Failed to load model. Check model_path: {self.model_path} "
-                f"or enable PyTorch fallback with use_pytorch_fallback=True"
-            )
 
     def _detections_crops(
         self,
