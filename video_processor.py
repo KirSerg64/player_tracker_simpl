@@ -28,7 +28,7 @@ from tracker.utils.pipeline_base import MessageType, PipelineMessage, ProcessCon
 from tracker.algorithms.tracker import Tracker
 from tracker.gta_link.tracklet_refiner import TrackletsRefiner
 from tracker.visualization.players_drawer import EllipseDetection
-from tracker.visualization.video_creator import create_final_tracklet_video, create_overlay_video
+from tracker.visualization.video_drawer import create_final_tracklet_video, create_overlay_video
 from tracker.utils.statistics import save_all_statistics
 import gc
 
@@ -118,7 +118,7 @@ def main(cfg):
     
     # result video writer
     video_writer = None
-    if cfg.save_results:
+    if cfg.save_detection_results:
         filepath = Path(output_dir) / "videos_res" / f"result.mp4"
         filepath.parent.mkdir(parents=True, exist_ok=True)
         video_path = str(filepath)
@@ -131,6 +131,7 @@ def main(cfg):
         log.info(f"Output video will be saved to: {video_path}")
         log.info(f"Output video: {input_width}x{input_height} @ {input_fps} FPS")
         # image save path
+    if cfg.save_frame_results:
         img_save_path = Path(output_dir) / "seq_0" / "img1"
         img_save_path.mkdir(parents=True, exist_ok=True)
         img_save_path = str(img_save_path)
@@ -179,7 +180,7 @@ def main(cfg):
             tracklets = tracker.process(features)
             tracklet_writer.add_tracklet(tracklets)
 
-            if cfg.save_results and video_writer is not None:
+            if cfg.save_detection_results and video_writer is not None:
                 # Draw frame using visualizers
                 visualizer.draw_detection(tracklets.data['frame'], tracklets.data['detections'])
                 # Write to video if required
@@ -187,7 +188,7 @@ def main(cfg):
         else:
             log.warning(f"No detections for frame {frames_processed}")
 
-        if cfg.save_results:
+        if cfg.save_frame_results:
             image_path = f"{img_save_path}/{frames_processed:06d}.jpg"
             assert cv2.imwrite(image_path, frame), f"Error saving image {image_path}"
 
@@ -211,10 +212,12 @@ def main(cfg):
     # Close progress bar
     progress_bar.close()
 
-    tracklet_writer.save_tracklets(tracklet_writer.get_tracklets(), tracklet_writer.file_path)
-    log.info("Start tracklet refiner.")
+    # tracklet_writer.save_tracklets(tracklet_writer.get_tracklets(), tracklet_writer.file_path)
+    log.info("=======Start tracklet refiner.=======")
 
-    real_time_tracklets = copy.deepcopy(tracklet_writer.get_tracklets())
+    if cfg.save_video_with_tracklets and cfg.overlay_video:
+        real_time_tracklets = copy.deepcopy(tracklet_writer.get_tracklets())
+
     final_tracklets = tracklet_refiner._refine_tracklets(tracklet_writer.get_tracklets())
 
     # Finalize tracklet refinement and get final results
@@ -223,13 +226,14 @@ def main(cfg):
     # log.info(f"Final tracklet refinement completed: {len(final_tracklets)} final tracklets")
     
     # Create final video with refined tracklets
-    if cfg.save_results and final_tracklets:
+    if cfg.save_final_tracklets and final_tracklets:
         _, video_name = os.path.split(cfg.video_path)
         video_name = os.path.splitext(video_name)[0]
         final_tracklets_save_path = os.path.join(output_dir, video_name + "_final_tracklets.pkl")
         log.info(f"Final tracklets {len(final_tracklets)} saved to: {final_tracklets_save_path}")
         tracklet_writer.save_tracklets(final_tracklets, final_tracklets_save_path)
 
+    if cfg.save_video_with_tracklets and final_tracklets:
         log.info("Creating final video with refined tracklets...")      
 
         # Get video properties for statistics
