@@ -31,6 +31,7 @@ save_final_tracklets: true
 save_video_with_tracklets: false
 save_detection_results: false
 save_frame_results: false
+save_original_tracklets: true
 overlay_video: false
 save_to_aws: true
 hydra:

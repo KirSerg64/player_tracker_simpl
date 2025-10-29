@@ -212,7 +212,8 @@ def main(cfg):
     # Close progress bar
     progress_bar.close()
 
-    # tracklet_writer.save_tracklets(tracklet_writer.get_tracklets(), tracklet_writer.file_path)
+    if cfg.save_original_tracklets:
+        tracklet_writer.save_tracklets(tracklet_writer.get_tracklets(), tracklet_writer.file_path)
     log.info("=======Start tracklet refiner.=======")
 
     if cfg.save_video_with_tracklets and cfg.overlay_video:
