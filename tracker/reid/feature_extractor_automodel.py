@@ -45,6 +45,7 @@ class FeatureExtractorAutoModel(object):
         self.model_preprocessor_config = cfg.model_preprocessor_config
         self.model_path = cfg.model_path
         self.image_size = cfg.image_size
+        self.output_features = cfg.get("output_features", "cls_token")
         self.device = device
         self.batch_size = batch_size
                           
