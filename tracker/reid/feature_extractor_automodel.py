@@ -60,7 +60,7 @@ class FeatureExtractorAutoModel(object):
             self.model = AutoModel.from_config(self.model_config)
             self.model.load_state_dict(torch.load(self.model_path))
             self.model.compile(mode="max-autotune", fullgraph=True)            
-            self.model.eval()
+            self.model.eval().to(self.device)
         else:
             log.info(
                 f"Model not found at {self.model_path}. "
@@ -75,7 +75,7 @@ class FeatureExtractorAutoModel(object):
                 device_map="auto", 
             )
             self.model.compile(mode="max-autotune", fullgraph=True)  
-            self.model.eval()
+            self.model.eval().to(self.device)
 
     def _detections_crops(
         self,
