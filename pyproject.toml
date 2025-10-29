@@ -68,6 +68,8 @@ dependencies = [
     "pika",
     "requests",
     "python-dotenv",
+    "ffmpeg-python",
+    "transformers==4.57.1",
 ]
 
 [project.optional-dependencies]
