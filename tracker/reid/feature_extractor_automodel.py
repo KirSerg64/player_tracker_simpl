@@ -41,7 +41,7 @@ class FeatureExtractorAutoModel(object):
             device: 'cuda' or 'cpu'
             batch_size: Maximum batch size for inference
         """
-        self.model_config = DINOv3ViTConfig.from_pretrained(self.model_config)
+        self.model_config = DINOv3ViTConfig.from_pretrained(cfg.model_config)
         self.model_preprocessor_config = cfg.model_preprocessor_config
         self.model_path = cfg.model_path
         self.image_size = cfg.image_size
