@@ -32,6 +32,7 @@ class YOLOInference(ImageLevelModule):
             self.class_map['player'], 
             self.class_map['goalkeeper'], 
             self.class_map['referee'],
+            self.class_map['person'],
         ])
         self.use_slicer = cfg.get("use_slicer", False)
         if self.use_slicer:
@@ -86,7 +87,7 @@ class YOLOInference(ImageLevelModule):
                 # check for `player` and 'goalkeeper' class
                 if conf >= self.cfg.min_confidence and class_id in self.classes_to_detect:
                     detections.append(
-                        np.concatenate([sanitize_bbox_ltrb(xyxy, (shape[1], shape[0])), [class_id, conf]], axis=0)
+                        np.concatenate([sanitize_bbox_ltrb(xyxy, (shape[1], shape[0])), [conf, class_id]], axis=0)
                     )
                     self.id += 1
 
@@ -95,7 +96,7 @@ class YOLOInference(ImageLevelModule):
                 msg_type=MessageType.DATA,
                 data={
                     'frame': input.data['frame'],
-                    "detections": detections
+                    "detections": np.stack(detections)
                 },
                 metadata=input.metadata,
                 timestamp=input.timestamp,

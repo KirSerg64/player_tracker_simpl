@@ -26,14 +26,14 @@ class TrackletReadWrite:
         """Add tracklets to the internal dictionary."""
         #  tracklet: M X (x, y, x, y, id, conf, cls, ind)        
         for i, tracklet in enumerate(tracklets):
-            l, t, w, h = ltrb_to_ltwh(tracklet[:4])
+            ltwh = ltrb_to_ltwh(tracklet[:4]).tolist()
             track_id = int(tracklet[4])
-            bbox_conf = tracklet[5]
+            bbox_conf = float(tracklet[5])
             # Update tracklet with detection info
             if track_id not in self.tracklets:
-                self.tracklets[track_id] = Tracklet(track_id, frame_id, bbox_conf, [l, t, w, h])
+                self.tracklets[track_id] = Tracklet(track_id, frame_id, bbox_conf, ltwh)
             else:
-                self.tracklets[track_id].append_det(frame_id, bbox_conf, [l, t, w, h])
+                self.tracklets[track_id].append_det(frame_id, bbox_conf, ltwh)
             self.tracklets[track_id].append_feat(np.squeeze(features[i, :])) 
 
     def get_tracklets(self) -> Dict[int, Tracklet]:
