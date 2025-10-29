@@ -441,7 +441,7 @@ def merge_tracklets(tracklets, max_x_range=None, max_y_range=None, merge_dist_th
     logger.info(f"===========Using PyTorch-optimized implementation=============")
     
     # calculate tracklets distance matrix with PyTorch optimizations
-    Dist = get_distance_matrix(tracklets)    
+    Dist = get_distance_matrix(tracklets, use_voting_distance=True)    
 
     idx2tid = {idx: tid for idx, tid in enumerate(tracklets.keys())}
     
