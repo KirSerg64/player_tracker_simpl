@@ -1,0 +1,13 @@
+# SAM3 Segmenter Configuration with Text Prompt Support
+_target_: tracker.segment.sam3_segmenter.Sam3Segmenter
+batch_size: 1
+cfg:
+  model_type: "sam3"
+  model_path: "facebook/sam3-vit-base"  # HuggingFace model ID or local path
+  
+  # Text prompt configuration
+  text_prompt: "person"  # Default text prompt for open-vocabulary segmentation
+  use_text_prompt: false  # Set to true to use text-based segmentation without detector
+  
+  # When use_text_prompt=true, segmenter can work without detector
+  # and will return separate masks for each detected instance

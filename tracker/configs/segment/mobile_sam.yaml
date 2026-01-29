@@ -1,0 +1,7 @@
+# Mobile-SAM Segmenter Configuration
+_target_: tracker.segment.sam_segmenter.SamSegmenter
+batch_size: 1
+cfg:
+  model_type: "mobile_sam"  # 'sam' or 'mobile_sam'
+  backbone: "vit_t"  # vit_t for Mobile-SAM
+  model_path: "${model_dir}/segmenter/mobile_sam.pt"

@@ -1,6 +1,12 @@
-_target_: tracker.segment.base_segmenter.BaseSegmenter
+# Base Segmenter Configuration using Factory Pattern
+# Uses create_segmenter factory function to instantiate the correct segmenter
+_target_: tracker.segment.factory.create_segmenter
 batch_size: 1
 cfg:
-  model_type: "mobile_sam" # sam
-  backbone: "vit_t"
+  model_type: "mobile_sam"  # Options: 'sam', 'mobile_sam', 'sam3', 'sam2' (placeholder)
+  backbone: "vit_t"  # vit_b, vit_l, vit_h (SAM), vit_t (Mobile-SAM)
   model_path: "${model_dir}/segmenter/mobile_sam.pt"
+  
+  # SAM3-specific options (ignored by other models)
+  text_prompt: "person"  # Text prompt for SAM3
+  use_text_prompt: false  # Enable text-based segmentation for SAM3

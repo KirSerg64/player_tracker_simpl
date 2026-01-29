@@ -1,0 +1,10 @@
+# SAM3 with Text Prompt Enabled (No Detector Required)
+_target_: tracker.segment.sam3_segmenter.Sam3Segmenter
+batch_size: 1
+cfg:
+  model_type: "sam3"
+  model_path: "facebook/sam3-vit-base"
+  
+  # Text-based segmentation enabled
+  text_prompt: "person"
+  use_text_prompt: true  # Enable text prompts - works without detector
