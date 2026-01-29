@@ -406,6 +406,118 @@ class EllipseDetection(DetectionVisualizer):
                     alpha_bg=1,
                 )
 
+    def draw_detections_and_tracklets(self, image, detections: List[np.ndarray], tracklets: List[np.ndarray]):
+        """
+        Draw both detections and tracklets on the image with different colors.
+        
+        Args:
+            image: Frame image to draw on
+            detections: List of detection arrays
+            tracklets: List of tracklet arrays
+        """
+        img_height, img_width = image.shape[:2]
+        
+        # Colors for different types
+        detection_color = (255, 0, 0)  # Blue for detections
+        tracklet_color = (0, 255, 0)   # Green for tracklets
+        
+        # Draw detections
+        for detection in detections:
+            x1, y1, x2, y2 = detection[:4].tolist()
+            track_id = int(detection[4]) if len(detection) > 4 else 0
+            center = (int((x1 + x2) / 2), int(y2))
+            width = x2 - x1
+            height = y2 - y1
+            
+            cv2.ellipse(
+            image,
+            center=center,
+            axes=(int(width), int(0.35 * width)),
+            angle=0.0,
+            startAngle=-45.0,
+            endAngle=235.0,
+            color=detection_color,
+            thickness=2,
+            lineType=cv2.LINE_AA,
+            )
+            
+            if self.print_id:
+                text = f"D{track_id}" if track_id > 0 else "D"
+            if self.font_algorithm == "smart":
+                font_scale = calculate_smart_font_scale(width, height, img_width, img_height, text)
+            else:
+                font_scale = calculate_optimal_font_scale(
+                width, height, img_width, img_height, 
+                len(text), self.font_algorithm
+                )
+            
+            draw_text(
+                image,
+                text,
+                center,
+                fontFace=1,
+                fontScale=font_scale,
+                thickness=1,
+                alignH="c",
+                alignV="c",
+                color_bg=detection_color,
+                color_txt=self.color_text,
+                alpha_bg=1,
+            )
+        
+        # Draw tracklets
+        for tracklet in tracklets:
+            x1, y1, width, height = tracklet[:4].tolist()
+            is_located = tracklet[4]
+            score = tracklet[5] if len(tracklet) > 5 else 0.0
+            center = (int(x1 + width / 2), int(y1))
+
+            # Draw bounding box for tracklets
+            cv2.rectangle(
+                image,
+                (int(x1), int(y1)),
+                (int(x1 + width), int(y1 + height)),
+                color=tracklet_color,
+                thickness=2,
+                lineType=cv2.LINE_AA,
+            )
+            
+            cv2.ellipse(
+                image,
+                center=center,
+                axes=(int(width), int(0.35 * width)),
+                angle=0.0,
+                startAngle=-45.0,
+                endAngle=235.0,
+                color=tracklet_color,
+                thickness=3,  # Thicker for tracklets
+                lineType=cv2.LINE_AA,
+            )
+            
+            if self.print_id:
+                text = f"S:{score} L:{bool(is_located)}"
+            if self.font_algorithm == "smart":
+                font_scale = calculate_smart_font_scale(width, height, img_width, img_height, text)
+            else:
+                font_scale = calculate_optimal_font_scale(
+                width, height, img_width, img_height, 
+                len(text), self.font_algorithm
+                )
+
+            draw_text(
+                image,
+                text,
+                center,
+                fontFace=1,
+                fontScale=font_scale,
+                thickness=1,
+                alignH="c",
+                alignV="c",
+                color_bg=tracklet_color,
+                color_txt=self.color_text,
+                alpha_bg=1,
+            )                
+            
 
 def test_font_algorithms(bbox_width=100, bbox_height=150, img_width=1920, img_height=1080, text="123"):
     """
