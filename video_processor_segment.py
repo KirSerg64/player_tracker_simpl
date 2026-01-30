@@ -141,7 +141,8 @@ def main(cfg):
         log.info(f"Output images will be saved to: {img_save_path}")
 
     #create object detector
-    detector = instantiate(cfg.detector, device=device, batch_size=cfg.modules.detector.batch_size)
+    if "detector" in cfg and cfg.detector is not None:
+        detector = instantiate(cfg.detector, device=device, batch_size=cfg.modules.detector.batch_size)
     #create segmenter
     segmenter = instantiate(cfg.segment, device=device, batch_size=cfg.modules.segment.batch_size)
     # create tracklet writer
@@ -173,7 +174,8 @@ def main(cfg):
                 'frame_id': frames_processed
             }
         )   
-        detections = detector.process(video_result)
+        if cfg.detector is not None:
+            detections = detector.process(video_result)
         painted_frame = frame.copy()  # Start with original frame
         
         if detections.msg_type == MessageType.DATA:

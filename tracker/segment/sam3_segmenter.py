@@ -10,6 +10,9 @@ from typing import Dict, Tuple, Optional, List
 
 from tracker.segment.base_segmenter import BaseSegmenter
 from tracker.utils.pipeline_base import MessageType, PipelineMessage
+import logging
+
+log = logging.getLogger(__name__)
 
 
 class Sam3Segmenter(BaseSegmenter):
@@ -55,7 +58,7 @@ class Sam3Segmenter(BaseSegmenter):
         
         self._current_image = None
         
-        print(f"SAM3 text prompt: '{self.text_prompt}' (enabled: {self.use_text_prompt})")
+        log.info(f"SAM3 text prompt: '{self.text_prompt}' (enabled: {self.use_text_prompt})")
     
     def process(self, input: PipelineMessage) -> PipelineMessage:
         """

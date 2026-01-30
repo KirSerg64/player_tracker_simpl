@@ -5,9 +5,9 @@ video_path: ""
 target_fps: 15
 
 defaults:
-  - detector: yolo_api
+  # - detector: yolo_api
   # - reid: feature_extractor_tensorrt
-  - segment: base_segmenter
+  - segment: sam3_text  # Options: sam3, mobile_sam, sam3_text
   - _self_
 
 modules: # Allows module-specific batch_size and other configuration
