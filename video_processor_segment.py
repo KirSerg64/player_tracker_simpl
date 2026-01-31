@@ -140,9 +140,13 @@ def main(cfg):
         img_save_path = str(img_save_path)
         log.info(f"Output images will be saved to: {img_save_path}")
 
-    #create object detector
+    #create object detector (optional)
+    detector = None
     if "detector" in cfg and cfg.detector is not None:
         detector = instantiate(cfg.detector, device=device, batch_size=cfg.modules.detector.batch_size)
+        log.info("Using detector for predictions")
+    else:
+        log.info("No detector found - using text prompts for segmentation")
     #create segmenter
     segmenter = instantiate(cfg.segment, device=device, batch_size=cfg.modules.segment.batch_size)
     # create tracklet writer
@@ -174,15 +178,21 @@ def main(cfg):
                 'frame_id': frames_processed
             }
         )   
-        if cfg.detector is not None:
+        
+        # Use detector if available, otherwise pass frame directly to segmenter
+        if detector is not None:
             detections = detector.process(video_result)
+            masks = segmenter.process(detections)
+        else:
+            # Use text prompt-based segmentation
+            masks = segmenter.process(video_result)
+        
         painted_frame = frame.copy()  # Start with original frame
         
-        if detections.msg_type == MessageType.DATA:
-            masks = segmenter.process(detections)
+        if masks.msg_type == MessageType.DATA:
             
             # Paint masks on the frame
-            if masks.msg_type == MessageType.DATA and 'masks' in masks.data:
+            if 'masks' in masks.data:
                 mask_array = masks.data['masks']  # Shape: (N, 1, H, W) or (N, H, W)
                 frame_height, frame_width = painted_frame.shape[:2]
                 
