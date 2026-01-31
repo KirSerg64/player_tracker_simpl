@@ -74,22 +74,26 @@ class Sam3Segmenter(BaseSegmenter):
         detections = input.data.get('detections', None)
         
         # Choose processing mode
-        if self.use_text_prompt and (detections is None or len(detections) == 0):
+        if self.use_text_prompt:
             # Text-based segmentation (no detector needed)
-            masks = self._process_text_prompt(image)
+            masks, boxes, scores = self._process_text_prompt(image)
         elif detections is not None and len(detections) > 0:
             # Box-based segmentation (with detector)
-            masks = self._process_boxes(image, detections)
+            masks, boxes, scores = self._process_boxes(image, detections)
         else:
             # No input, return empty
             masks = []
+            boxes = []
+            scores = []
         
         out_pipeline = PipelineMessage(
             msg_type=MessageType.DATA,
             data={
                 'frame': image,
-                "detections": np.stack(detections) if detections is not None and len(detections) > 0 else np.array([]),
+                # "detections": np.stack(detections) if detections is not None and len(detections) > 0 else np.array([]),
                 "masks": np.stack(masks) if len(masks) > 0 else np.array([]),
+                "boxes": np.stack(boxes) if len(boxes) > 0 else np.array([]),
+                "scores": np.array(scores) if len(scores) > 0 else np.array([]),
             },
             metadata=input.metadata,
             timestamp=input.timestamp,
@@ -121,18 +125,23 @@ class Sam3Segmenter(BaseSegmenter):
         # Run inference
         outputs = self._model(**inputs)
         pred_masks = outputs.pred_masks.squeeze(0)  # (num_boxes, num_masks, H, W)
-        
+        pred_boxes = outputs.pred_boxes.squeeze(0)  # (num_boxes, 4)
+        pred_scores = outputs.pred_scores.squeeze(0)  # (num_boxes,)
+
         masks = []
+        boxes = []
+        scores = []
         for i, mask in enumerate(pred_masks):
             # Take best mask from multi-mask output
             if mask.dim() == 3:  # (num_masks, H, W)
-                mask = mask[0]
-            
+                mask = mask[0]            
             # Post-process
             processed_mask = self._postprocess_mask(mask)
             masks.append(processed_mask)
+            boxes.append(pred_boxes[i].cpu().numpy())
+            scores.append(pred_scores[i].cpu().numpy())
         
-        return masks
+        return masks, boxes, scores
     
     @torch.no_grad()
     def _process_text_prompt(self, image: np.ndarray) -> List[np.ndarray]:
@@ -157,33 +166,33 @@ class Sam3Segmenter(BaseSegmenter):
         
         # Run inference
         outputs = self._model(**inputs)
-        
+        pred_masks, pred_boxes, pred_scores = outputs["masks"], outputs["boxes"], outputs["scores"]
         # Extract masks - SAM3 can detect multiple instances
-        pred_masks = outputs.pred_masks  # (batch, num_instances, num_masks, H, W)
-        
-        if pred_masks.dim() == 5:  # (1, num_instances, num_masks, H, W)
-            pred_masks = pred_masks.squeeze(0)  # (num_instances, num_masks, H, W)
         
         masks = []
+        boxes = []
+        scores = []
         if pred_masks.dim() == 4:  # Multiple instances detected
-            for instance_masks in pred_masks:
+            for instance_masks, instance_boxes, instance_scores in zip(pred_masks, pred_boxes, pred_scores):
                 # Take best mask for each instance
                 if instance_masks.dim() == 3:
                     mask = instance_masks[0]  # Take first/best mask
                 else:
-                    mask = instance_masks
-                
+                    mask = instance_masks                
                 processed_mask = self._postprocess_mask(mask)
                 # Only add if mask has sufficient area
-                if processed_mask.sum() > 100:  # Threshold for minimum mask size
+                if processed_mask.sum() > 0:  # Threshold for minimum mask size
                     masks.append(processed_mask)
+                    boxes.append(instance_boxes.cpu().numpy())
+                    scores.append(instance_scores.cpu().numpy())
         elif pred_masks.dim() == 3:  # Single instance
             mask = pred_masks[0] if pred_masks.shape[0] > 1 else pred_masks
             processed_mask = self._postprocess_mask(mask)
-            if processed_mask.sum() > 100:
+            if processed_mask.sum() > 0:
                 masks.append(processed_mask)
-        
-        return masks
+                boxes.append(pred_boxes.cpu().numpy())
+                scores.append(pred_scores.cpu().numpy())
+        return masks, boxes, scores
     
     def set_image(self, image: np.ndarray) -> None:
         """Store image (SAM3 doesn't pre-embed)."""

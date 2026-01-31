@@ -233,6 +233,7 @@ def main(cfg):
 
         # Save painted frame to video if enabled
         if cfg.save_detection_results and video_writer is not None:
+            painted_frame = cv2.resize(painted_frame, (save_width, save_height))
             video_writer.write(painted_frame)
 
         if cfg.save_frame_results:
