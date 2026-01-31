@@ -156,7 +156,8 @@ class Sam3Segmenter(BaseSegmenter):
             List of binary masks (one per detected instance)
         """
         pil_image = Image.fromarray(image)
-        
+        im_height, im_width, _ = image.shape
+
         # Prepare inputs with text prompt
         inputs = self._processor(
             pil_image,
@@ -166,33 +167,39 @@ class Sam3Segmenter(BaseSegmenter):
         
         # Run inference
         outputs = self._model(**inputs)
-        pred_masks, pred_boxes, pred_scores = outputs["masks"], outputs["boxes"], outputs["scores"]
         # Extract masks - SAM3 can detect multiple instances
-        
-        masks = []
-        boxes = []
-        scores = []
-        if pred_masks.dim() == 4:  # Multiple instances detected
-            for instance_masks, instance_boxes, instance_scores in zip(pred_masks, pred_boxes, pred_scores):
-                # Take best mask for each instance
-                if instance_masks.dim() == 3:
-                    mask = instance_masks[0]  # Take first/best mask
-                else:
-                    mask = instance_masks                
-                processed_mask = self._postprocess_mask(mask)
-                # Only add if mask has sufficient area
-                if processed_mask.sum() > 0:  # Threshold for minimum mask size
-                    masks.append(processed_mask)
-                    boxes.append(instance_boxes.cpu().numpy())
-                    scores.append(instance_scores.cpu().numpy())
-        elif pred_masks.dim() == 3:  # Single instance
-            mask = pred_masks[0] if pred_masks.shape[0] > 1 else pred_masks
-            processed_mask = self._postprocess_mask(mask)
-            if processed_mask.sum() > 0:
-                masks.append(processed_mask)
-                boxes.append(pred_boxes.cpu().numpy())
-                scores.append(pred_scores.cpu().numpy())
-        return masks, boxes, scores
+        results = self._processor.post_process_instance_segmentation(
+            outputs,
+            threshold=0.5,
+            mask_threshold=0.5,
+            target_sizes=[(im_height, im_width)]
+        )[0]
+        pred_masks, pred_boxes, pred_scores = results["masks"], results["boxes"], results["scores"]
+        # masks = []
+        # boxes = []
+        # scores = []
+        # if pred_masks.dim() == 4:  # Multiple instances detected
+        #     for instance_masks, instance_boxes, instance_scores in zip(pred_masks, pred_boxes, pred_scores):
+        #         # Take best mask for each instance
+        #         if instance_masks.dim() == 3:
+        #             mask = instance_masks[0]  # Take first/best mask
+        #         else:
+        #             mask = instance_masks                
+        #         processed_mask = self._postprocess_mask(mask)
+        #         # Only add if mask has sufficient area
+        #         if processed_mask.sum() > 0:  # Threshold for minimum mask size
+        #             masks.append(processed_mask)
+        #             boxes.append(instance_boxes.cpu().numpy())
+        #             scores.append(instance_scores.cpu().numpy())
+        # elif pred_masks.dim() == 3:  # Single instance
+        #     mask = pred_masks[0] if pred_masks.shape[0] > 1 else pred_masks
+        #     processed_mask = self._postprocess_mask(mask)
+        #     if processed_mask.sum() > 0:
+        #         masks.append(processed_mask)
+        #         boxes.append(pred_boxes.cpu().numpy())
+        #         scores.append(pred_scores.cpu().numpy())
+        # return masks, boxes, scores
+        return pred_masks, pred_boxes, pred_scores
     
     def set_image(self, image: np.ndarray) -> None:
         """Store image (SAM3 doesn't pre-embed)."""
