@@ -11,6 +11,9 @@ import hydra
 import warnings
 import logging
 from tqdm import tqdm
+import numpy as np
+import matplotlib
+from PIL import Image
 
 from tracklab.datastruct import TrackerState
 from tracklab.pipeline import Pipeline
@@ -69,6 +72,26 @@ def get_hydra_output_dir():
     except:
         # Fallback to current working directory if Hydra config is not available
         return os.getcwd()
+
+
+def overlay_masks(image, masks, target_size):
+    image = Image.fromarray(image).convert("RGBA")
+    masks = 255 * masks.astype(np.uint8)
+
+    n_masks = masks.shape[0]
+    cmap = matplotlib.colormaps.get_cmap("rainbow").resampled(n_masks)
+    colors = [
+        tuple(int(c * 255) for c in cmap(i)[:3])
+        for i in range(n_masks)
+    ]
+
+    for mask, color in zip(masks, colors):
+        mask = Image.fromarray(mask)
+        overlay = Image.new("RGBA", image.size, color + (0,))
+        alpha = mask.point(lambda v: int(v * 0.5))
+        overlay.putalpha(alpha)
+        image = Image.alpha_composite(image, overlay)
+    return image.convert("RGB")
 
 
 @hydra.main(version_base=None, config_path="pkg://tracker.configs", config_name="segment")
@@ -194,46 +217,43 @@ def main(cfg):
             # Paint masks on the frame
             if 'masks' in masks.data:
                 mask_array = masks.data['masks']  # Shape: (N, 1, H, W) or (N, H, W)
+                # log.warning(f"!!!!!!!Masks: {mask_array.shape}")
                 frame_height, frame_width = painted_frame.shape[:2]
                 
-                # Paint each mask with a different color
-                for i, mask in enumerate(mask_array):
-                    # Squeeze mask to 2D if needed
-                    if mask.ndim == 3:
-                        mask = mask.squeeze(0)
+                painted_frame = overlay_masks(
+                    painted_frame,
+                    mask_array,
+                    (save_width, save_height)
+                )
+                painted_frame = np.array(painted_frame)
+                painted_frame = cv2.resize(painted_frame, (save_width, save_height))
+                log.warning(f"Frame shape: {painted_frame.shape}")
+                # # Paint each mask with a different color
+                # for i, mask in enumerate(mask_array):
+                #     # Squeeze mask to 2D if needed
+                #     if mask.ndim == 3:
+                #         mask = mask.squeeze(0)
                     
-                    # Convert mask to uint8 format
-                    mask_uint8 = (mask > 0).astype('uint8')
+                #     # Convert mask to uint8 format
+                #     mask_uint8 = (mask > 0).astype('uint8')
                     
-                    # Resize mask to match frame dimensions if needed
-                    if mask_uint8.shape != (save_height, save_width):
-                        mask_uint8 = cv2.resize(
-                            mask_uint8, 
-                            (save_width, save_height), 
-                            interpolation=cv2.INTER_NEAREST
-                        )
-                    
-                    # Use different colors for different detections (cycling through color indices)
-                    color_idx = (i % 10) + 3  # Use colors 3-12 from colormap
-                    
-                    # Paint the mask on the frame
-                    painted_frame = mask_painter(
-                        painted_frame,
-                        mask_uint8,
-                        res=save_width,
-                        background_alpha=0.0,
-                        background_blur_radius=7,
-                        contour_width=3,
-                        contour_color=color_idx,
-                        contour_alpha=0.3,
-                        mode='11'
-                    )
+                #     # Resize mask to match frame dimensions if needed
+                #     if mask_uint8.shape != (save_height, save_width):
+                #         mask_uint8 = cv2.resize(
+                #             mask_uint8, 
+                #             (save_width, save_height), 
+                #             interpolation=cv2.INTER_NEAREST
+                #         )
+                #         painted_frame = cv2.resize(
+                #             painted_frame,
+                #             (save_width, save_height), 
+                #             interpolation=cv2.INTER_NEAREST                            
+                #         )
         else:
             log.warning(f"No detections for frame {frames_processed}")
 
         # Save painted frame to video if enabled
         if cfg.save_detection_results and video_writer is not None:
-            painted_frame = cv2.resize(painted_frame, (save_width, save_height))
             video_writer.write(painted_frame)
 
         if cfg.save_frame_results:
@@ -247,7 +267,7 @@ def main(cfg):
         #     break
         frames_processed += 1
 
-        if frames_processed >= 200:
+        if frames_processed >= 100:
             break
         
         # Update progress bar

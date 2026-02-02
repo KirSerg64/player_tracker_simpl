@@ -36,22 +36,24 @@ class Sam3Segmenter(BaseSegmenter):
         
         # Import SAM3 from transformers
         try:
-            from transformers import Sam3Processor, Sam3Model
+            from sam3.sam3.model_builder import build_sam3_video_model
         except ImportError:
             raise ImportError(
-                "transformers library required for SAM3. "
-                "Install with: pip install transformers"
+                "transformers library required for SAM3Segmenter. "
             )
-        
-        # Load processor and model
-        self._processor = Sam3Processor.from_pretrained(cfg.model_path)
-        self._model = Sam3Model.from_pretrained(
-            cfg.model_path,
-            torch_dtype=self._torch_dtype
+
+        self._model = (
+            build_sam3_video_model(
+                checkpoint_path=cfg.model_path,
+                bpe_path=cfg.get('bpe_path', None),
+                has_presence_token=cfg.get('has_presence_token', True),
+                geo_encoder_use_img_cross_attn=cfg.get('geo_encoder_use_img_cross_attn', True),
+                strict_state_dict_loading=cfg.get('strict_state_dict_loading', True),
+                apply_temporal_disambiguation=cfg.get('apply_temporal_disambiguation', False),
+                device=device,                
+            )
+            .eval()
         )
-        self._model.to(device=self._device)
-        self._model.eval()
-        
         # Text prompt configuration
         self.text_prompt = getattr(cfg, 'text_prompt', 'person')
         self.use_text_prompt = getattr(cfg, 'use_text_prompt', False)
@@ -174,7 +176,10 @@ class Sam3Segmenter(BaseSegmenter):
             mask_threshold=0.5,
             target_sizes=[(im_height, im_width)]
         )[0]
-        pred_masks, pred_boxes, pred_scores = results["masks"], results["boxes"], results["scores"]
+        pred_masks, pred_boxes, pred_scores = \
+            results["masks"].cpu().numpy(), \
+            results["boxes"].cpu().numpy(), \
+            results["scores"].cpu().numpy()
         # masks = []
         # boxes = []
         # scores = []
