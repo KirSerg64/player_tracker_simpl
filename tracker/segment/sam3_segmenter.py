@@ -11,7 +11,7 @@ import numpy as np
 from typing import Dict, Tuple, Optional
 
 import cv2 as cv
-from sam3.build.lib.sam3.model.geometry_encoders import Prompt
+from sam3.sam3.model.geometry_encoders import Prompt
 from sam3.sam3.model.data_misc import FindStage, convert_my_tensors
 from sam3.sam3.model.utils.misc import copy_data_to_device
 from sam3.sam3.model.data_misc import BatchedDatapoint
