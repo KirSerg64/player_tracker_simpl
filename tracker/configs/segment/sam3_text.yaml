@@ -5,7 +5,6 @@ cfg:
   model_type: "sam3"
   model_path: "facebook/sam3-vit-base"
   
-  # Text-based segmentation enabled
   text_prompt: "person"
   use_text_prompt: true  # Enable text prompts - works without detector
   bpe_path: "sam3/sam3/assets/bpe_simple_vocab_16e6.txt.gz"
@@ -13,3 +12,4 @@ cfg:
   geo_encoder_use_img_cross_attn: true
   strict_state_dict_loading: true
   async_loading_frames: false
+  compile_model: true
