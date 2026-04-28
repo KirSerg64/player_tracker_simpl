@@ -310,6 +310,8 @@ def main(cfg):
         video_fps = cap.get(cv2.CAP_PROP_FPS) if cap.isOpened() else 25.0
         cap.release()        
         # Create final video with refined tracklets
+        _, video_name = os.path.split(cfg.video_path)
+        video_name = os.path.splitext(video_name)[0]
         refined_video_path = os.path.join(output_dir, f"{video_name}_refined.mp4")
         if cfg.overlay_video:
             create_overlay_video(
