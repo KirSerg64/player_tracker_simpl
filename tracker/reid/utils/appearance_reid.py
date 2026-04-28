@@ -97,7 +97,10 @@ class _GalleryEntry:
     histogram: np.ndarray            # normalised, unit-L2 flat float32 array
     last_bbox: np.ndarray            # [x1, y1, x2, y2] at time of disappearance
     frames_absent: int = 0           # incremented each frame the track is absent
-    yolo_feat: np.ndarray | None = None  # optional L2-normalised YOLO feature vector
+    yolo_feat: np.ndarray | None = None   # optional L2-normalised YOLO FPN feature vector
+    osnet_feat: np.ndarray | None = None  # optional L2-normalised OSNet embedding
+    last_velocity: np.ndarray | None = None  # [dx, dy] pixels/frame at disappearance
+    last_conf: float = 1.0            # detection confidence at last visible frame
 
 
 # ---------------------------------------------------------------------------
@@ -105,42 +108,82 @@ class _GalleryEntry:
 # ---------------------------------------------------------------------------
 
 class AppearanceReIDMatcher:
-    """Re-identify players after occlusions using HSV appearance histograms.
+    """Re-identify players after occlusions using appearance histograms and embeddings.
 
-    Optionally blends in YOLO backbone feature vectors (from
-    :class:`~segmentation_tracking.yolo_features.YOLOFeatureExtractor`) to
-    improve discrimination when two players share similar jersey colours.
+    Supports tri-modal similarity blending (HSV + YOLO FPN + OSNet), a spatial
+    velocity gate that skips geometrically impossible matches, a team gate that
+    blocks cross-team assignments, and confidence-weighted EMA histogram updates.
 
     Parameters
     ----------
     gallery_ttl:
-        Number of frames to retain a lost-track gallery entry before pruning.
-        Set to ``≈ fps * max_occlusion_seconds`` (default ``90`` ≈ 3 s at 30 fps).
+        Frames to retain a lost-track entry before pruning (~fps × max_occlusion_s).
     similarity_threshold:
-        Minimum cosine similarity ``[0, 1]`` required to accept a gallery
-        match.  Higher is more conservative; default ``0.85``.
+        Minimum blended cosine similarity ``[0, 1]`` to accept a gallery match.
     yolo_feat_weight:
-        Blend weight for YOLO feature similarity vs. HSV histogram similarity
-        when both are available.  ``0.0`` → HSV only; ``1.0`` → YOLO only;
-        default ``0.5`` (equal blend).  When YOLO features are absent for
-        either gallery entry or candidate, the matcher silently falls back to
-        HSV-only similarity regardless of this setting.
+        Weight for YOLO FPN feature similarity.  Falls back to HSV when features
+        are absent for either side.
+    osnet_feat_weight:
+        Weight for OSNet embedding similarity.  Same fallback logic as YOLO.
+        ``yolo_feat_weight + osnet_feat_weight`` must be ≤ 1.0.
+    ema_alpha:
+        EMA keep-weight for the running histogram (0 = use only new frame,
+        1 = never update).  Default ``0.7``.
+    spatial_gate_enabled:
+        If ``True``, skip gallery pairs whose Kalman-predicted position is further
+        than ``spatial_gate_radius`` pixels from the candidate detection.
+    spatial_gate_radius:
+        Maximum distance (pixels) between predicted position and detection centre.
+    team_gate_enabled:
+        If ``True``, skip pairs where HSV similarity is below ``team_gate_hsv_thresh``
+        (different jersey colours → likely different teams).
+    team_gate_hsv_thresh:
+        HSV cosine similarity below which a pair is considered cross-team and
+        blocked.  Only used when ``team_gate_enabled=True``.
+    confidence_weighted_ema:
+        If ``True``, scale the EMA update weight by detection confidence so that
+        blurry/low-confidence frames update the appearance model more slowly.
     """
 
     def __init__(
         self,
         gallery_ttl: int = 90,
         similarity_threshold: float = 0.85,
-        yolo_feat_weight: float = 0.5,
+        yolo_feat_weight: float = 0.0,
+        osnet_feat_weight: float = 0.0,
+        ema_alpha: float = _EMA_ALPHA,
+        spatial_gate_enabled: bool = False,
+        spatial_gate_radius: float = 200.0,
+        team_gate_enabled: bool = False,
+        team_gate_hsv_thresh: float = 0.3,
+        confidence_weighted_ema: bool = False,
     ) -> None:
+        w_y = float(np.clip(yolo_feat_weight, 0.0, 1.0))
+        w_o = float(np.clip(osnet_feat_weight, 0.0, 1.0))
+        if w_y + w_o > 1.0:
+            raise ValueError(
+                f"yolo_feat_weight ({w_y:.3f}) + osnet_feat_weight ({w_o:.3f}) must be ≤ 1.0"
+            )
+
         self.gallery_ttl = gallery_ttl
         self.similarity_threshold = similarity_threshold
-        self.yolo_feat_weight = float(np.clip(yolo_feat_weight, 0.0, 1.0))
+        self.yolo_feat_weight = w_y
+        self.osnet_feat_weight = w_o
+        self.ema_alpha = float(np.clip(ema_alpha, 0.0, 1.0))
+        self.spatial_gate_enabled = spatial_gate_enabled
+        self.spatial_gate_radius = float(spatial_gate_radius)
+        self.team_gate_enabled = team_gate_enabled
+        self.team_gate_hsv_thresh = float(team_gate_hsv_thresh)
+        self.confidence_weighted_ema = confidence_weighted_ema
 
-        # active_hists: running appearance model per currently-visible track
+        # Per-active-track running appearance models
         self._active_hists: dict[int, np.ndarray] = {}
-        # active_yolo_feats: latest YOLO feature vector per active track (optional)
         self._active_yolo_feats: dict[int, np.ndarray] = {}
+        self._active_osnet_feats: dict[int, np.ndarray] = {}
+        # Previous bbox centre per track for velocity estimation
+        self._active_prev_centers: dict[int, np.ndarray] = {}
+        # Rolling velocity [dx, dy] pixels/frame per track
+        self._active_velocities: dict[int, np.ndarray] = {}
         # gallery: old_track_id → GalleryEntry for recently-lost tracks
         self._gallery: dict[int, _GalleryEntry] = {}
 
@@ -152,6 +195,9 @@ class AppearanceReIDMatcher:
         """Clear all state (call at the start of each new video)."""
         self._active_hists.clear()
         self._active_yolo_feats.clear()
+        self._active_osnet_feats.clear()
+        self._active_prev_centers.clear()
+        self._active_velocities.clear()
         self._gallery.clear()
 
     def update_active(
@@ -160,6 +206,8 @@ class AppearanceReIDMatcher:
         frame: np.ndarray,
         bbox: np.ndarray,
         yolo_feat: np.ndarray | None = None,
+        osnet_feat: np.ndarray | None = None,
+        detection_conf: float = 1.0,
     ) -> None:
         """Update the rolling appearance model for an active track.
 
@@ -175,29 +223,46 @@ class AppearanceReIDMatcher:
         bbox:
             ``[x1, y1, x2, y2]`` bounding box for the player.
         yolo_feat:
-            Optional L2-normalised float32 YOLO backbone feature vector
-            for this player in this frame, as produced by
-            :class:`~segmentation_tracking.yolo_features.YOLOFeatureExtractor`.
-            When provided, it is stored (replacing any previous value) and
-            will be carried into the gallery when the track disappears.
+            Optional L2-normalised YOLO FPN feature vector.
+        osnet_feat:
+            Optional L2-normalised OSNet embedding vector.
+        detection_conf:
+            Detection confidence ``[0, 1]``.  Used only when
+            ``confidence_weighted_ema=True`` to scale the EMA update weight.
         """
         hist = self._extract_histogram(frame, bbox)
         if hist is None:
             return
+
+        # Confidence-weighted EMA: low-confidence frames update model more slowly
+        if self.confidence_weighted_ema:
+            alpha = self.ema_alpha * float(np.clip(detection_conf, 0.3, 1.0))
+        else:
+            alpha = self.ema_alpha
+
         prev = self._active_hists.get(track_id)
         if prev is None:
             self._active_hists[track_id] = hist
         else:
-            # Exponential moving average: weight recent history more
-            self._active_hists[track_id] = _EMA_ALPHA * prev + (1 - _EMA_ALPHA) * hist
-            # Re-normalise after averaging
+            self._active_hists[track_id] = alpha * prev + (1.0 - alpha) * hist
             norm = np.linalg.norm(self._active_hists[track_id])
             if norm > 1e-6:
                 self._active_hists[track_id] /= norm
 
-        # Store the latest YOLO feature (most recent frame overwrites previous)
         if yolo_feat is not None:
             self._active_yolo_feats[track_id] = yolo_feat
+        if osnet_feat is not None:
+            self._active_osnet_feats[track_id] = osnet_feat
+
+        # Track bbox-centre velocity for the spatial gate
+        cx = (float(bbox[0]) + float(bbox[2])) / 2.0
+        cy = (float(bbox[1]) + float(bbox[3])) / 2.0
+        prev_center = self._active_prev_centers.get(track_id)
+        if prev_center is not None:
+            self._active_velocities[track_id] = np.array(
+                [cx - prev_center[0], cy - prev_center[1]], dtype=np.float32
+            )
+        self._active_prev_centers[track_id] = np.array([cx, cy], dtype=np.float32)
 
     def notify_lost(
         self,
@@ -217,6 +282,9 @@ class AppearanceReIDMatcher:
         for tid in lost_ids:
             hist = self._active_hists.pop(tid, None)
             yolo_feat = self._active_yolo_feats.pop(tid, None)
+            osnet_feat = self._active_osnet_feats.pop(tid, None)
+            velocity = self._active_velocities.pop(tid, None)
+            self._active_prev_centers.pop(tid, None)
             if hist is None:
                 continue
             bbox = last_bboxes.get(tid)
@@ -227,6 +295,8 @@ class AppearanceReIDMatcher:
                 histogram=hist.copy(),
                 last_bbox=bbox.copy(),
                 yolo_feat=yolo_feat.copy() if yolo_feat is not None else None,
+                osnet_feat=osnet_feat.copy() if osnet_feat is not None else None,
+                last_velocity=velocity.copy() if velocity is not None else None,
             )
             logger.debug("ReID gallery: track %d added (gallery size=%d)", tid, len(self._gallery))
 
@@ -236,35 +306,32 @@ class AppearanceReIDMatcher:
         frame: np.ndarray,
         bboxes: dict[int, np.ndarray],
         yolo_feats: dict[int, np.ndarray] | None = None,
+        osnet_feats: dict[int, np.ndarray] | None = None,
     ) -> dict[int, int]:
         """Match newly-issued track IDs against the lost-track gallery.
 
         Uses the Hungarian algorithm for globally-optimal 1-to-1 assignment,
         ensuring two new IDs are never mapped to the same gallery entry.
+        Optional spatial and team gates pre-filter impossible pairs before
+        the similarity matrix is computed.
 
         Parameters
         ----------
         new_track_ids:
-            IDs that appeared this frame but were absent in the previous
-            frame (candidates for re-identification).
+            IDs that appeared this frame but were absent in the previous frame.
         frame:
             Current BGR frame.
         bboxes:
-            ``{track_id: bbox}`` for all current tracks (used to extract
-            histogram for new IDs).
+            ``{track_id: bbox}`` for all current tracks.
         yolo_feats:
-            Optional ``{track_id: feature_vector}`` mapping for new tracks,
-            as produced by
-            :class:`~segmentation_tracking.yolo_features.YOLOFeatureExtractor`.
-            When provided for both the candidate and the gallery entry, the
-            similarity is a weighted blend:
-            ``(1 - yolo_feat_weight) * hsv_sim + yolo_feat_weight * yolo_sim``.
+            Optional ``{track_id: feature_vector}`` for YOLO FPN features.
+        osnet_feats:
+            Optional ``{track_id: feature_vector}`` for OSNet embeddings.
 
         Returns
         -------
-        ``{new_id: old_id}`` mapping — apply this by replacing ``new_id``
-        entries with ``old_id`` in the tracking results.  Only entries with
-        blended similarity ≥ ``similarity_threshold`` are included.
+        ``{new_id: old_id}`` — only entries with blended similarity ≥
+        ``similarity_threshold`` are included.
         """
         if not new_track_ids or not self._gallery:
             return {}
@@ -273,37 +340,80 @@ class AppearanceReIDMatcher:
         n_new = len(new_track_ids)
         n_gal = len(gallery_ids)
 
-        # Build new-ID HSV histograms
+        # Pre-compute HSV histograms and bbox centres for new IDs
         new_hists: list[np.ndarray | None] = []
+        new_centers: list[np.ndarray | None] = []
         for nid in new_track_ids:
             bbox = bboxes.get(nid)
             new_hists.append(
                 self._extract_histogram(frame, bbox) if bbox is not None else None
             )
+            if bbox is not None:
+                cx = (float(bbox[0]) + float(bbox[2])) / 2.0
+                cy = (float(bbox[1]) + float(bbox[3])) / 2.0
+                new_centers.append(np.array([cx, cy], dtype=np.float64))
+            else:
+                new_centers.append(None)
 
-        # Build combined similarity matrix
+        w_y = self.yolo_feat_weight
+        w_o = self.osnet_feat_weight
+        w_h = 1.0 - w_y - w_o  # HSV weight (guaranteed ≥ 0 by constructor)
+
         sim_matrix = np.full((n_new, n_gal), -1.0, dtype=np.float64)
-        w = self.yolo_feat_weight
 
         for i, (nid, hist) in enumerate(zip(new_track_ids, new_hists)):
             if hist is None:
                 continue
             new_yolo = yolo_feats.get(nid) if yolo_feats else None
+            new_osnet = osnet_feats.get(nid) if osnet_feats else None
+            new_center = new_centers[i]
+
             for j, gid in enumerate(gallery_ids):
                 entry = self._gallery[gid]
+
+                # --- Spatial gate: skip if Kalman-predicted position is too far ---
+                if self.spatial_gate_enabled and new_center is not None:
+                    gcx = (float(entry.last_bbox[0]) + float(entry.last_bbox[2])) / 2.0
+                    gcy = (float(entry.last_bbox[1]) + float(entry.last_bbox[3])) / 2.0
+                    if entry.last_velocity is not None:
+                        gcx += float(entry.last_velocity[0]) * entry.frames_absent
+                        gcy += float(entry.last_velocity[1]) * entry.frames_absent
+                    dist = np.sqrt(
+                        (new_center[0] - gcx) ** 2 + (new_center[1] - gcy) ** 2
+                    )
+                    if dist > self.spatial_gate_radius:
+                        continue
+
+                # --- Compute HSV similarity (reused for team gate and final blend) ---
                 hsv_sim = float(np.dot(hist, entry.histogram))
 
-                # Blend in YOLO similarity when both sides have features
+                # --- Team gate: skip cross-team pairs based on jersey colour ---
+                if self.team_gate_enabled and hsv_sim < self.team_gate_hsv_thresh:
+                    continue
+
+                # --- Tri-modal blended similarity ---
+                # For absent features, redistribute their weight to HSV
+                sim = w_h * hsv_sim
+
                 if (
-                    w > 0.0
+                    w_y > 0.0
                     and new_yolo is not None
                     and entry.yolo_feat is not None
                     and new_yolo.shape == entry.yolo_feat.shape
                 ):
-                    yolo_sim = float(np.dot(new_yolo, entry.yolo_feat))
-                    sim = (1.0 - w) * hsv_sim + w * yolo_sim
+                    sim += w_y * float(np.dot(new_yolo, entry.yolo_feat))
                 else:
-                    sim = hsv_sim
+                    sim += w_y * hsv_sim   # fallback: redistribute to HSV
+
+                if (
+                    w_o > 0.0
+                    and new_osnet is not None
+                    and entry.osnet_feat is not None
+                    and new_osnet.shape == entry.osnet_feat.shape
+                ):
+                    sim += w_o * float(np.dot(new_osnet, entry.osnet_feat))
+                else:
+                    sim += w_o * hsv_sim   # fallback: redistribute to HSV
 
                 sim_matrix[i, j] = sim
 

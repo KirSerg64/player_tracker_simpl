@@ -1,4 +1,4 @@
-_target_: tracker.detector.yolo_api.YOLOInference
+_target_: tracker.detector.yolo_features.YOLOFeatureExtractor
 batch_size: 8
 cfg:
   # Feature extraction scale selection

@@ -124,6 +124,11 @@ class TrackletsRefiner():
         self.gpu_batch_size = getattr(cfg, 'gpu_batch_size', None)  # Auto-tune if None
         self.enable_benchmarking = getattr(cfg, 'enable_benchmarking', False)
 
+        # Post-hoc ReID link pass: merge tracklets separated by temporal gaps
+        # 0 = disabled (default); set to ~fps*max_gap_seconds to enable
+        self.reid_link_max_gap = getattr(cfg, 'reid_link_max_gap', 0)
+        self.reid_link_threshold = getattr(cfg, 'reid_link_threshold', 0.85)
+
         # Dynamic import based on use_gpu_acceleration flag and availability
         self._setup_functions()
 
@@ -545,6 +550,16 @@ class TrackletsRefiner():
 
     def _refine_tracklets(self, tracklets: Dict[int, Tracklet]):
         try:
+            # Step 0: ReID link pass — merge tracklets separated by temporal gaps
+            if self.reid_link_max_gap > 0:
+                log.info(f"ReID link pass - before: {len(tracklets)}")
+                tracklets = self._reid_link_pass(
+                    tracklets,
+                    max_gap_frames=self.reid_link_max_gap,
+                    similarity_threshold=self.reid_link_threshold,
+                )
+                log.info(f"After ReID link pass: {len(tracklets)}")
+
             # Step 1: Get spatial constraints
             max_x_range, max_y_range = self._get_spatial_constraints(tracklets)
 
@@ -572,6 +587,99 @@ class TrackletsRefiner():
             log.error(f"Error during tracklet refinement: {e}")
             return {}
         return refined_tracklets
+
+    def _reid_link_pass(
+        self,
+        tracklets: Dict[int, Tracklet],
+        max_gap_frames: int = 90,
+        similarity_threshold: float = 0.85,
+    ) -> Dict[int, Tracklet]:
+        """Merge tracklets separated by a temporal gap using mean OSNet embedding similarity.
+
+        Finds pairs (A, B) where A ends before B starts with a gap in
+        ``[1, max_gap_frames]`` frames, computes cosine similarity between
+        their mean feature vectors, and merges the best 1-to-1 pairs found
+        by Hungarian assignment above ``similarity_threshold``.
+        """
+        from scipy.optimize import linear_sum_assignment
+
+        # Compute mean L2-normalised embedding per tracklet
+        mean_feats: Dict[int, np.ndarray] = {}
+        for tid, trk in tracklets.items():
+            if not trk.features or not trk.times:
+                continue
+            try:
+                stack = np.stack(trk.features, axis=0).astype(np.float32)
+            except Exception:
+                continue
+            mean = stack.mean(axis=0)
+            norm = float(np.linalg.norm(mean))
+            if norm > 1e-6:
+                mean_feats[tid] = mean / norm
+
+        if len(mean_feats) < 2:
+            return tracklets
+
+        # Precompute end/start frames for eligible tracklets
+        eligible = [tid for tid in mean_feats if tracklets[tid].times]
+        end_frames = {tid: max(tracklets[tid].times) for tid in eligible}
+        start_frames = {tid: min(tracklets[tid].times) for tid in eligible}
+
+        # ending_ids: sorted by end frame (these are gallery entries)
+        # starting_ids: sorted by start frame (these are candidates)
+        ending_ids = sorted(eligible, key=lambda t: end_frames[t])
+        starting_ids = sorted(eligible, key=lambda t: start_frames[t])
+        n_end = len(ending_ids)
+        n_start = len(starting_ids)
+
+        sim_matrix = np.full((n_end, n_start), -1.0, dtype=np.float64)
+        for i, etid in enumerate(ending_ids):
+            ef = end_frames[etid]
+            feat_e = mean_feats[etid]
+            for j, stid in enumerate(starting_ids):
+                if etid == stid:
+                    continue
+                gap = start_frames[stid] - ef
+                if gap <= 0 or gap > max_gap_frames:
+                    continue
+                sim_matrix[i, j] = float(np.dot(feat_e, mean_feats[stid]))
+
+        cost_matrix = 1.0 - sim_matrix
+        row_ind, col_ind = linear_sum_assignment(cost_matrix)
+
+        # Build merge map: starting_tid → ending_tid
+        merge_map: Dict[int, int] = {}
+        claimed_ends: set = set()
+        for r, c in zip(row_ind, col_ind):
+            sim = sim_matrix[r, c]
+            if sim < similarity_threshold:
+                continue
+            etid = ending_ids[r]
+            stid = starting_ids[c]
+            if etid in claimed_ends:
+                continue  # ending tracklet already claimed
+            merge_map[stid] = etid
+            claimed_ends.add(etid)
+            log.debug(
+                "ReID post-proc: tracklet %d → %d (sim=%.3f, gap=%d frames)",
+                stid, etid, sim, start_frames[stid] - end_frames[etid],
+            )
+
+        if not merge_map:
+            return tracklets
+
+        result = dict(tracklets)
+        for stid, etid in merge_map.items():
+            if stid not in result or etid not in result:
+                continue
+            src = result.pop(stid)
+            dst = result[etid]
+            dst.times.extend(src.times)
+            dst.scores.extend(src.scores)
+            dst.bboxes.extend(src.bboxes)
+            dst.features.extend(src.features)
+
+        return result
 
     def _get_spatial_constraints(self, tracklets_dict: Dict) -> tuple:
         """Get spatial constraints for merging."""

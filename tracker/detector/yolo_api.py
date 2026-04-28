@@ -70,7 +70,6 @@ class YOLOInference(ImageLevelModule):
         else:
             results_by_image = self.model.predict(
                 images, 
-                embed = self.EMBED_LAYERS,
                 agnostic_nms=True,
                 device=self.device,
                 show=False,

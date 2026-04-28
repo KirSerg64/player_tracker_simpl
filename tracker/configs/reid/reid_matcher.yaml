@@ -1,0 +1,25 @@
+_target_: tracker.reid.utils.appearance_reid.AppearanceReIDMatcher
+
+# Gallery management
+gallery_ttl: 90               # frames to retain a lost-track entry (~fps * max_occlusion_seconds)
+similarity_threshold: 0.85    # minimum blended cosine similarity [0, 1] to accept a match
+
+# Feature blend weights (must sum to <= 1.0; remainder goes to HSV histogram)
+yolo_feat_weight: 0.0         # weight for YOLO FPN features (0.0 = disabled)
+osnet_feat_weight: 0.0        # weight for OSNet embedding (0.0 = disabled)
+# Examples:
+#   HSV only (baseline):     yolo_feat_weight: 0.0  osnet_feat_weight: 0.0
+#   OSNet-heavy blend:       yolo_feat_weight: 0.1  osnet_feat_weight: 0.6
+#   All three equal thirds:  yolo_feat_weight: 0.33 osnet_feat_weight: 0.34
+
+# Histogram EMA
+ema_alpha: 0.7                # keep-weight for running histogram (0=only new, 1=never update)
+confidence_weighted_ema: false  # scale EMA update by detection confidence
+
+# Spatial velocity gate: skip matches where predicted position is too far from candidate
+spatial_gate_enabled: false
+spatial_gate_radius: 200.0    # max pixels between predicted and actual detection centre
+
+# Team gate: block matches with low HSV similarity (likely different team jerseys)
+team_gate_enabled: false
+team_gate_hsv_thresh: 0.3     # HSV cosine similarity below this => cross-team, skip

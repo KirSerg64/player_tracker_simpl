@@ -6,18 +6,24 @@ target_fps: 15
 
 defaults:
   - detector: yolo_api
+  - yolo_features: yolo_features
   # - reid: feature_extractor_tensorrt
   - reid: feature_extractor
   # - reid: feature_extractor_automodel
   - tracker: strong_sort # Options: strong_sort, bot_sort
   # - gta_link: refiner
+  - reid_matcher: reid_matcher
   - _self_
 
 modules: # Allows module-specific batch_size and other configuration
   detector: {batch_size: 1}
+  yolo_features: {batch_size: 1}  # Reduced from 8 to avoid context conflicts
   feature_extractor: {batch_size: 32}  # Reduced from 8 to avoid context conflicts
   tracker: {batch_size: 1}
-  refiner: {batch_size: 100}
+  refiner: {batch_size: 100}  
+
+# AppearanceReIDMatcher integration toggle
+use_reid_matcher: true
 
 # Path definitions
 home_dir: "${oc.env:HOME}"

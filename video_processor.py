@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 
 import cv2
+import numpy as np
 import rich.logging
 import torch
 import hydra
@@ -140,19 +141,25 @@ def main(cfg):
     #create object detector
     detector = instantiate(cfg.detector, device=device, batch_size=cfg.modules.detector.batch_size)
     #create yolo feature extractor
-    yolo_features = instantiate(cfg.yolo_features, device=device, batch_size=cfg.modules.yolo_features.batch_size)
+    yolo_features = instantiate(cfg.yolo_features, yolo_model=detector, device=device, batch_size=cfg.modules.yolo_features.batch_size)
     #create feature extractor
     feature_extractor = instantiate(cfg.reid, device=device, batch_size=cfg.modules.feature_extractor.batch_size) 
     #create tracker
     tracker = instantiate(cfg.tracker, device=device, batch_size=cfg.modules.tracker.batch_size)
     #create tracklet refiner
-    tracklet_refiner = instantiate(cfg.gta_link, device=device, batch_size=cfg.modules.refiner.batch_size)
+    # tracklet_refiner = instantiate(cfg.gta_link, device=device, batch_size=cfg.modules.refiner.batch_size)
+    #create appearance ReID matcher
+    reid_matcher = instantiate(cfg.reid_matcher) if cfg.get("use_reid_matcher", False) else None
     # create tracklet writer
     tracklet_writer = TrackletReadWrite(file_path=os.path.join(output_dir, "original_tracklets.pkl"))
     #create visualizer
     visualizer = EllipseDetection()
 
     frames_processed = 0
+
+    # State for AppearanceReIDMatcher (track IDs and bboxes from previous frame)
+    prev_ids_set: set = set()
+    prev_bboxes_dict: dict = {}
 
     # Initialize progress bar
     progress_bar = tqdm(
@@ -180,6 +187,65 @@ def main(cfg):
         if detections.msg_type == MessageType.DATA:
             features = feature_extractor.process(detections)
             tracklets = tracker.process(features)
+
+            if reid_matcher is not None:
+                trk_arr = tracklets.data['tracklets']  # (M, 8): [x1,y1,x2,y2,id,conf,cls,det_idx]
+                if trk_arr.shape[0] > 0:
+                    cur_ids_set = {int(trk_arr[k, 4]) for k in range(len(trk_arr))}
+                    new_ids = sorted(cur_ids_set - prev_ids_set)
+                    lost_ids = sorted(prev_ids_set - cur_ids_set)
+
+                    bboxes_dict = {int(trk_arr[k, 4]): trk_arr[k, :4] for k in range(len(trk_arr))}
+
+                    # Map each active track to its OSNet embedding via det_idx
+                    raw_features = tracklets.data['features']
+                    osnet_feats_dict: dict = {}
+                    for k in range(len(trk_arr)):
+                        det_idx = int(trk_arr[k, 7])
+                        if 0 <= det_idx < len(raw_features):
+                            osnet_feats_dict[int(trk_arr[k, 4])] = raw_features[det_idx]
+
+                    # Re-identify new IDs against gallery of recently-lost tracks
+                    remap = reid_matcher.rematch(
+                        new_ids, frame, bboxes_dict, osnet_feats=osnet_feats_dict
+                    )
+
+                    # Apply remap in-place: replace new_id with old_id in column 4
+                    if remap:
+                        for k in range(len(trk_arr)):
+                            tid = int(trk_arr[k, 4])
+                            if tid in remap:
+                                old_id = remap[tid]
+                                trk_arr[k, 4] = float(old_id)
+                                if tid in osnet_feats_dict:
+                                    osnet_feats_dict[old_id] = osnet_feats_dict.pop(tid)
+
+                    # Update rolling appearance model for each active track (after remap)
+                    for k in range(len(trk_arr)):
+                        tid = int(trk_arr[k, 4])
+                        reid_matcher.update_active(
+                            track_id=tid,
+                            frame=frame,
+                            bbox=trk_arr[k, :4],
+                            osnet_feat=osnet_feats_dict.get(tid),
+                            detection_conf=float(trk_arr[k, 5]),
+                        )
+
+                    reid_matcher.notify_lost(lost_ids, prev_bboxes_dict)
+                    active_ids = {int(trk_arr[k, 4]) for k in range(len(trk_arr))}
+                    reid_matcher.age_gallery(active_ids)
+
+                    prev_ids_set = active_ids
+                    prev_bboxes_dict = {
+                        int(trk_arr[k, 4]): trk_arr[k, :4].copy() for k in range(len(trk_arr))
+                    }
+                else:
+                    # No tracklets this frame — all previously active tracks are now lost
+                    reid_matcher.notify_lost(sorted(prev_ids_set), prev_bboxes_dict)
+                    reid_matcher.age_gallery(set())
+                    prev_ids_set = set()
+                    prev_bboxes_dict = {}
+
             tracklet_writer.add_tracklet(tracklets)
 
             if cfg.save_detection_results and video_writer is not None:
@@ -221,7 +287,7 @@ def main(cfg):
     if cfg.save_video_with_tracklets and cfg.overlay_video:
         real_time_tracklets = copy.deepcopy(tracklet_writer.get_tracklets())
 
-    final_tracklets = tracklet_refiner._refine_tracklets(tracklet_writer.get_tracklets())
+    # final_tracklets = tracklet_refiner._refine_tracklets(tracklet_writer.get_tracklets())
 
     # Finalize tracklet refinement and get final results
     # log.info("Finalizing tracklet refinement...")

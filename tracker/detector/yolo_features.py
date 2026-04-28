@@ -102,11 +102,13 @@ class YOLOFeatureExtractor:
         empty lists) rather than crashing the main tracking pipeline.
     """
 
-    def __init__(self, yolo_model, cfg) -> None:
+    def __init__(self, cfg, yolo_model, device, batch_size) -> None:
         self._scale_idx: int = max(0, min(cfg.scale_idx, len(_SCALE_STRIDES) - 1))
         self._feat_tensors: list | None = None   # set by hook each forward pass
         self._feat_dim: int | None = None         # populated after first pass
         self._hook_handle = None
+        self._batch_size = batch_size
+        self._device = device
 
         self._register_hook(yolo_model)
 
