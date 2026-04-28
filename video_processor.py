@@ -147,7 +147,7 @@ def main(cfg):
     #create tracker
     tracker = instantiate(cfg.tracker, device=device, batch_size=cfg.modules.tracker.batch_size)
     #create tracklet refiner
-    # tracklet_refiner = instantiate(cfg.gta_link, device=device, batch_size=cfg.modules.refiner.batch_size)
+    tracklet_refiner = instantiate(cfg.gta_link, device=device, batch_size=cfg.modules.refiner.batch_size)
     #create appearance ReID matcher
     reid_matcher = instantiate(cfg.reid_matcher) if cfg.get("use_reid_matcher", False) else None
     # create tracklet writer
@@ -287,7 +287,7 @@ def main(cfg):
     if cfg.save_video_with_tracklets and cfg.overlay_video:
         real_time_tracklets = copy.deepcopy(tracklet_writer.get_tracklets())
 
-    # final_tracklets = tracklet_refiner._refine_tracklets(tracklet_writer.get_tracklets())
+    final_tracklets = tracklet_refiner._refine_tracklets(tracklet_writer.get_tracklets())
 
     # Finalize tracklet refinement and get final results
     # log.info("Finalizing tracklet refinement...")
