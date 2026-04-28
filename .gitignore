@@ -167,5 +167,8 @@ LLM_generated/
 mock_images_simple/
 results_parallel/
 
-prtreid-fixed-opset17-simplified.onnx
-prtreid-onnx-opset20-simplified.onnx
+pretrained_models/
+fly.toml
+PERFORMANCE_OPTIMIZATION.md
+test_gpu_selection.py
+run_parallel.sh
