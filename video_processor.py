@@ -139,6 +139,8 @@ def main(cfg):
 
     #create object detector
     detector = instantiate(cfg.detector, device=device, batch_size=cfg.modules.detector.batch_size)
+    #create yolo feature extractor
+    yolo_features = instantiate(cfg.yolo_features, device=device, batch_size=cfg.modules.yolo_features.batch_size)
     #create feature extractor
     feature_extractor = instantiate(cfg.reid, device=device, batch_size=cfg.modules.feature_extractor.batch_size) 
     #create tracker

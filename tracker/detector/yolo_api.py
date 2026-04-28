@@ -10,7 +10,6 @@ from tracklab.pipeline.imagelevel_module import ImageLevelModule
 from tracklab.utils.coordinates import sanitize_bbox_ltrb
 from tracker.utils.pipeline_base import MessageType, ProcessConfig, PipelineMessage
 
-
 log = logging.getLogger(__name__)
 
 class YOLOInference(ImageLevelModule):
@@ -22,7 +21,7 @@ class YOLOInference(ImageLevelModule):
         super().__init__(batch_size)
         self.cfg = cfg
         self.device = device
-        
+
         self.model = YOLO(cfg.path_to_checkpoint, task="detect")
         
         # self.model.to(device)
@@ -71,6 +70,7 @@ class YOLOInference(ImageLevelModule):
         else:
             results_by_image = self.model.predict(
                 images, 
+                embed = self.EMBED_LAYERS,
                 agnostic_nms=True,
                 device=self.device,
                 show=False,
@@ -82,6 +82,7 @@ class YOLOInference(ImageLevelModule):
             )
             results_by_image = [sv.Detections.from_ultralytics(res) for res in results_by_image]
         detections = []
+
         for results, shape in zip(results_by_image, shapes):
             for xyxy, _, conf, class_id, _, _ in results:
                 # check for `player` and 'goalkeeper' class
@@ -96,7 +97,7 @@ class YOLOInference(ImageLevelModule):
                 msg_type=MessageType.DATA,
                 data={
                     'frame': input.data['frame'],
-                    "detections": np.stack(detections)
+                    "detections": np.stack(detections),
                 },
                 metadata=input.metadata,
                 timestamp=input.timestamp,
@@ -106,7 +107,7 @@ class YOLOInference(ImageLevelModule):
                 msg_type=MessageType.NO_DATA,
                 data={
                     'frame': input.data['frame'],
-                    "detections": []
+                    "detections": [],
                 },
                 metadata=input.metadata,
                 timestamp=input.timestamp,

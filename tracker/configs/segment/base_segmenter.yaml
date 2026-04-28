@@ -1,6 +1,0 @@
-_target_: tracker.segment.base_segmenter.BaseSegmenter
-batch_size: 1
-cfg:
-  model_type: "mobile_sam" # sam
-  backbone: "vit_t"
-  model_path: "${model_dir}/segmenter/mobile_sam.pt"

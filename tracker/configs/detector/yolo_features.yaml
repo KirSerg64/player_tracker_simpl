@@ -1,0 +1,21 @@
+_target_: tracker.detector.yolo_api.YOLOInference
+batch_size: 8
+cfg:
+  # Feature extraction scale selection
+  # 0 = stride 8 (finest spatial resolution; high detail)
+  # 1 = stride 16 (medium; default; best for person-sized objects)
+  # 2 = stride 32 (coarsest; most semantic information)
+  scale_idx: 1
+  # Feature vector normalization
+  # L2 normalization is applied to all extracted feature vectors
+  normalize: true
+  norm_threshold: 1e-6
+  # Feature pooling strategy
+  pooling: "average"  # average pooling over RoI region
+  # Output configuration
+  output_dtype: "float32"
+  output_shape: null  # Automatically determined from first forward pass (depends on stride)
+  # Logging and debugging
+  log_level: "DEBUG"
+  debug_hook_registration: true
+  embed_layers: [15, 18, 21]

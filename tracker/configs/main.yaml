@@ -7,10 +7,10 @@ target_fps: 15
 defaults:
   - detector: yolo_api
   # - reid: feature_extractor_tensorrt
-  # - reid: feature_extractor
-  - reid: feature_extractor_automodel
+  - reid: feature_extractor
+  # - reid: feature_extractor_automodel
   - tracker: strong_sort # Options: strong_sort, bot_sort
-  - gta_link: refiner
+  # - gta_link: refiner
   - _self_
 
 modules: # Allows module-specific batch_size and other configuration
@@ -27,13 +27,13 @@ model_dir: "${project_dir}/pretrained_models"
 experiment_name: "player_tracking"
 project_dir: "${hydra:runtime.cwd}"
 
-save_final_tracklets: true
+save_final_tracklets: false
 save_video_with_tracklets: false
-save_detection_results: false
+save_detection_results: true
 save_frame_results: false
-save_original_tracklets: true
+save_original_tracklets: false
 overlay_video: false
-save_to_aws: true
+save_to_aws: false
 hydra:
   run:
     dir: "outputs/${experiment_name}/${now:%Y-%m-%d}/${now:%H-%M-%S}"
